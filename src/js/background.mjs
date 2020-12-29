@@ -11,3 +11,4 @@ chrome.browserAction.onClicked.addListener(function(){
     chrome.tabs.sendMessage(CurrTab.id, 'run');
   })
 })
+

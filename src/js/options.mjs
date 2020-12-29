@@ -1,3 +1,8 @@
+
+
+import runInit from "./backgroundData.mjs";
+import * as utils from "./utils.mjs";
+
 // Saves options to chrome.storage
 function save_options() {
   const username = document.getElementById("username").value;
@@ -17,6 +22,7 @@ function save_options() {
     setTimeout(function() {
       status.textContent = '';
     }, 750);
+    runInit();
   });
 }
 

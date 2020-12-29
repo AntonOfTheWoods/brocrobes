@@ -27,14 +27,16 @@ chrome.runtime.onMessage.addListener(
         password = items.password;
 
         fetchWithNewToken().then(() => {
-          console.log('looks as though got a token, so starting a sync');
           initDB();
         });
         sendResponse({message: "launched a sync"});
       });
     } else if (request.message.type === "getWordFromDBs") {
       getWordFromDBs(request.message.val).then((values) => {
-        console.log('all da values be');
+        sendResponse({message: values});
+      });
+    } else if (request.message.type === "getNoteWords") {
+      getNoteWords().then((values) => {
         console.log(values);
         sendResponse({message: values});
       });

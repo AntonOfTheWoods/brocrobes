@@ -1,5 +1,6 @@
 let known_words = 0;
 let unknown_words = 0;
+let notes;
 
 // the callback function that will be fired when the element apears in the viewport
 function onEntry(entry) {
@@ -9,19 +10,8 @@ function onEntry(entry) {
 
     change.target.childNodes.forEach(function(item) {
         if (item.nodeType == 3) {
-          // const fetchInfo = {
-          //   method: "POST",
-          //   cache: "no-store",
-          //   body: JSON.stringify({ data: item.nodeValue, userStatsMode: glossing }),
-          //   headers: {
-          //       "Accept": "application/json",
-          //       "Content-Type": "application/json",
-          //       "Authorization": "Bearer " + authToken
-          //   },
-          // };
-
-          fetchPlus(baseUrl + 'enrich/enrich_json', { data: item.nodeValue, userStatsMode: glossing },
-            DEFAULT_RETRIES, apiUnavailable)
+          fetchPlus(baseUrl + 'enrich/aenrich_json', { data: item.nodeValue, userStatsMode: glossing },
+            DEFAULT_RETRIES)
             .then(data => {
               enrichElement(item, data, pops);
               change.target.dataset.tced = true;
@@ -60,31 +50,24 @@ const pops = doCreateElement('span', 'tcrobe-def-popup', null, [['style', tcrobe
 pops.attributes.id = 'dapopsicle';
 
 function cleanupAfterNoteUpdate(addNew, simplified) {
-      //remove existing defs if we are setting is_known = true
-      if (!addNew) {
-        const eqDefs = document.getElementsByClassName("tcrobe-def");
-        for (var i = 0; i < eqDefs.length; i++) {
-          const deft = eqDefs[i];
-          if (deft.dataset.tcrobeDefId == simplified) {
-            deft.parentElement.removeChild(deft);
-          }
-        }
+  //remove existing defs if we are setting is_known = true
+  if (!addNew) {
+    const eqDefs = document.getElementsByClassName("tcrobe-def");
+    for (var i = 0; i < eqDefs.length; i++) {
+      const deft = eqDefs[i];
+      if (deft.dataset.tcrobeDefId == simplified) {
+        deft.parentElement.removeChild(deft);
       }
-      // This will remove addition after an add, but what if you chose wrong and want to update?
-      // the only option left will be to set to "known", which is not necessarily true
-      // const plusImgs = document.getElementsByClassName("tcrobe-def-plus");
-      // while (plusImgs.length > 0) plusImgs[0].remove();
+    }
+  }
+  // This will remove addition after an add, but what if you chose wrong and want to update?
+  // the only option left will be to set to "known", which is not necessarily true
+  // const plusImgs = document.getElementsByClassName("tcrobe-def-plus");
+  // while (plusImgs.length > 0) plusImgs[0].remove();
 }
 
 function sendNoteToApi(apiVerb, note, addNew, target, previousImg) {
-  const fetchInfo = {
-    method: "POST",
-    cache: "no-store",
-    body: JSON.stringify(note),
-    headers: { "Accept": "application/json", "Content-Type": "application/json", 'Authorization': 'Bearer ' + authToken },
-  };
-
-  fetchPlus(baseUrl + 'notes/' + apiVerb, fetchInfo, DEFAULT_RETRIES, apiUnavailable)
+  fetchPlus(baseUrl + 'notes/' + apiVerb, note, DEFAULT_RETRIES)
     .then(res => {
       const msg = document.getElementsByClassName('tcrobe-def-messages')[0];
       msg.style.display = "block";
@@ -99,7 +82,8 @@ function sendNoteToApi(apiVerb, note, addNew, target, previousImg) {
       }
     }).catch((err) => {
       console.log(err);
-      apiUnavailable();
+      //overkill?
+      //apiUnavailable();
     });
 }
 
@@ -307,6 +291,7 @@ function enrichElement(element, data, pops) {
         entry.appendChild(popie);
         entry.addEventListener("click", function (event) { populatePopup(event, pops, t); });
         entry.appendChild(doCreateElement('span', 'tcrobe-word', t['word'], null));
+
         if (!(t['ankrobes_entry']) || !(t['ankrobes_entry'].length) || t['ankrobes_entry'][0]['Is_Known'] == 0) {
           let gloss = null;
           if (glossing == USER_STATS_MODE.L1) {
@@ -371,12 +356,33 @@ chrome.runtime.onMessage.addListener(request => {
     alert('Please refresh the page before attempting this action again');
     return;  // TODO: offer to reload from here
   }
-  chrome.storage.local.get({
-    username: '',
-    password: '',
-    baseUrl: '',
-    glossing: ''
-  }, function (items) {
+  chrome.runtime.sendMessage({message: { type: "getNoteWords", val: "" } }, (response) => {
+    console.log(response.message);
+    notes = response.message;
+
+    chrome.storage.local.get({
+      username: '',
+      password: '',
+      baseUrl: '',
+      glossing: ''
+    }, function (items) {
+      baseUrl = items.baseUrl + (items.baseUrl.endsWith('/') ? '' : '/');
+      glossing = items.glossing;
+      username = items.username;
+      password = items.password;
+      fetchWithNewToken().then( () => {
+        if (!(authToken)) {
+          alert('Please refresh the page before attempting this action again');
+          return;  // TODO: offer to reload from here
+        } else {
+          enrichDocument();
+        }
+      });
+      return Promise.resolve({ response: "Running enrich" });
+    });
+  });
+});
+
 
     // chrome.runtime.sendMessage({message: { type: "getWordFromDBs", val: "工作" } }, (response) => {
     //     console.log('if life is good');
@@ -384,18 +390,3 @@ chrome.runtime.onMessage.addListener(request => {
     //     console.log('if or is it bad life is bad');
     // });
 
-    baseUrl = items.baseUrl + (items.baseUrl.endsWith('/') ? '' : '/');
-    glossing = items.glossing;
-    username = items.username;
-    password = items.password;
-    fetchWithNewToken().then( () => {
-      if (!(authToken)) {
-        alert('Please refresh the page before attempting this action again');
-        return;  // TODO: offer to reload from here
-      } else {
-        enrichDocument();
-      }
-    });
-    return Promise.resolve({ response: "Running enrich" });
-  });
-});

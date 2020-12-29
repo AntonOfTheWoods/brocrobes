@@ -318,3 +318,7 @@ function getWordFromDBs(word) {
   }
   return Promise.all(promises)
 }
+
+function getNoteWords() {
+  return idbKeyval.keys(new idbKeyval.Store(TC_DB, NOTE_STORE))
+}

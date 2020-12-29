@@ -212,7 +212,7 @@ function fetchPlus(url, options = {}, retries) {
     })
     .catch(error => console.error(error.message));
 }
-
+/*
 export {
   DEFAULT_RETRIES,
   tokensFromCredentials,
@@ -224,3 +224,4 @@ export {
   USER_STATS_MODE,
   fetchWithNewToken
 }
+*/

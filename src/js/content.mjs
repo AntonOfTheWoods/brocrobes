@@ -1,59 +1,5 @@
-const USER_STATS_MODE_IGNORE = -1
-const USER_STATS_MODE_UNMODIFIED = 0
-const USER_STATS_MODE_NO_GLOSS = 2  // word-segmented
-const USER_STATS_MODE_L2_SIMPLIFIED = 4  // Simpler synonym, not yet implemented
-const USER_STATS_MODE_TRANSLITERATION = 6  // Pinyin
-const USER_STATS_MODE_L1 = 8  // English
-
-let glossing = USER_STATS_MODE_IGNORE;
-
-let baseUrl = '';
-let authToken = '';
-let refreshToken = '';
-let fromLang = '';
 let known_words = 0;
 let unknown_words = 0;
-
-const DEFAULT_RETRIES = 3;
-
-const fetchPlus = (url, options = {}, retries) =>
-  fetch(url, options)
-    .then(res => {
-      if (res.ok) {
-        return res.json()
-      }
-      if (res.status == 401) {
-        const fetchInfo = {
-          method: "POST",
-          cache: "no-store",
-          body: JSON.stringify({ refresh: refreshToken }),
-          headers: { "Accept": "application/json", "Content-Type": "application/json" },
-        };
-        fetch(baseUrl + 'api/token/refresh/', fetchInfo)
-          .then(res => {
-            if (res.ok) {
-              return res.json();
-            }
-            throw new Error(res.status);
-          })
-          .then(data => {
-            if (data.access) {
-              authToken = data.access;
-              options.headers.Authorization = "Bearer " + authToken;
-              return fetchPlus(url, options, retries - 1);
-            }
-          }).catch((err) => {
-            console.log(err);
-          });
-      }
-
-      if (retries > 0) {
-        return fetchPlus(url, options, retries - 1)
-      }
-      throw new Error(res.status)
-    })
-    .catch(error => console.error(error.message));
-
 
 // the callback function that will be fired when the element apears in the viewport
 function onEntry(entry) {
@@ -63,18 +9,19 @@ function onEntry(entry) {
 
     change.target.childNodes.forEach(function(item) {
         if (item.nodeType == 3) {
-          const fetchInfo = {
-            method: "POST",
-            cache: "no-store",
-            body: JSON.stringify({ data: item.nodeValue, userStatsMode: glossing }),
-            headers: {
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": "Bearer " + authToken
-            },
-          };
+          // const fetchInfo = {
+          //   method: "POST",
+          //   cache: "no-store",
+          //   body: JSON.stringify({ data: item.nodeValue, userStatsMode: glossing }),
+          //   headers: {
+          //       "Accept": "application/json",
+          //       "Content-Type": "application/json",
+          //       "Authorization": "Bearer " + authToken
+          //   },
+          // };
 
-          fetchPlus(baseUrl + 'enrich/enrich_json', fetchInfo, DEFAULT_RETRIES)
+          fetchPlus(baseUrl + 'enrich/enrich_json', { data: item.nodeValue, userStatsMode: glossing },
+            DEFAULT_RETRIES, apiUnavailable)
             .then(data => {
               enrichElement(item, data, pops);
               change.target.dataset.tced = true;
@@ -112,85 +59,6 @@ const tcrobeStats = 'margin-left: 6px; padding: 5px 0;';
 const pops = doCreateElement('span', 'tcrobe-def-popup', null, [['style', tcrobeDefPopup]], document.body);
 pops.attributes.id = 'dapopsicle';
 
-function toEnrich(charstr) {
-  // TODO: find out why the results are different if these consts are global...
-  const zhReg = /[\u4e00-\u9fa5]+/gi;
-  const enReg = /[[A-z]+/gi;
-
-  switch (fromLang) {
-    case 'en':
-      return enReg.test(charstr);
-    case 'zh-Hans':
-      return zhReg.test(charstr);
-    default:
-      return false;
-  }
-};
-
-function apiUnavailable(message) {
-  // close the popup if it's open
-  popups = document.getElementsByClassName("tcrobe-def-popup");  // why are there more than one again? ¯_(ツ)_/¯
-  for (var i = 0; i < popups.length; i++) {
-    popups[i].style.display = "none";
-  }
-  const error = document.createElement('div');
-  error.appendChild(document.createTextNode(`Transcrobes Server ${baseUrl} Unavailable. ${message}`));
-  error.style.position = "fixed";
-  error.style.width = "100%";
-  error.style.height = "60px";
-  error.style.top = "0";
-  error.style.backgroundColor = "red";
-  error.style.fontSize = "large";
-  error.style.textAlign = "center";
-  error.style.zIndex = 1000000;
-  document.body.prepend(error);
-}
-
-// Helper functions
-function parseJwt (token) {
-    // TODO: this will apparently not do unicode properly. For the moment we don't care.
-    var base64Url = token.split('.')[1];
-    var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(window.atob(base64));
-};
-
-function textNodes(node) {
-  return walkNodeTree(node, {
-    inspect: n => !['STYLE', 'SCRIPT'].includes(n.nodeName),
-    collect: n => (n.nodeType === 3) && n.nodeValue && n.nodeValue.match(/\S/),
-    //callback: n => console.log(n.nodeName, n),
-  });
-}
-
-function walkNodeTree(root, options) {
-  options = options || {};
-  const inspect = options.inspect || (n => true),
-    collect = options.collect || (n => true);
-  const walker = document.createTreeWalker(
-    root,
-    NodeFilter.SHOW_ALL,
-    {
-      acceptNode: function (node) {
-        if (!inspect(node)) { return NodeFilter.FILTER_REJECT; }
-        if (!collect(node)) { return NodeFilter.FILTER_SKIP; }
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    }
-  );
-
-  const nodes = []; let n;
-  while (n = walker.nextNode()) {
-    options.callback && options.callback(n);
-    nodes.push(n);
-  }
-
-  return nodes;
-}
-
-function onError(e) {
-    console.error(e);
-};
-
 function cleanupAfterNoteUpdate(addNew, simplified) {
       //remove existing defs if we are setting is_known = true
       if (!addNew) {
@@ -216,7 +84,7 @@ function sendNoteToApi(apiVerb, note, addNew, target, previousImg) {
     headers: { "Accept": "application/json", "Content-Type": "application/json", 'Authorization': 'Bearer ' + authToken },
   };
 
-  fetchPlus(baseUrl + 'notes/' + apiVerb, fetchInfo, DEFAULT_RETRIES)
+  fetchPlus(baseUrl + 'notes/' + apiVerb, fetchInfo, DEFAULT_RETRIES, apiUnavailable)
     .then(res => {
       const msg = document.getElementsByClassName('tcrobe-def-messages')[0];
       msg.style.display = "block";
@@ -359,35 +227,22 @@ function initPopup(event, popup) {
   popup.innerHTML = '';
 }
 
-function submitUserEvent(eventType, eventData) {
-  const fetchInfo = {
-    method: "POST",
-    cache: "no-store",
-    body: JSON.stringify({ type: eventType, data: eventData, userStatsMode: glossing }),
-    headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + authToken
-    },
-  };
-
-  fetchPlus(baseUrl + 'user_event/', fetchInfo, DEFAULT_RETRIES);
-  console.log(eventType);
-  console.log(eventData);
-
-}
-
 function toggleSentenceVisible(event, pop) {
   if (pop.style.display == "block") {
     pop.style.display = "none";
   } else {
     pop.style.display = "block";
 
-    submitUserEvent('bc_sentence_lookup',
-      {
-        target_word: event.target.parentElement.dataset.word,
-        target_sentence: event.target.parentElement.dataset.sentCleaned
-      }
+    fetchPlus(
+      baseUrl + 'user_event/',
+      { type: 'bc_sentence_lookup',
+        data: {
+          target_word: event.target.parentElement.dataset.word,
+          target_sentence: event.target.parentElement.dataset.sentCleaned
+        },
+        userStatsMode: glossing
+      },
+      DEFAULT_RETRIES
     );
   }
 
@@ -397,11 +252,16 @@ function toggleSentenceVisible(event, pop) {
 function populatePopup(event, popup, token) {
   initPopup(event, popup);
 
-  submitUserEvent('bc_word_lookup',
-    {
-      target_word: JSON.parse(event.target.parentElement.dataset.tcrobeEntry).word,
-      target_sentence: event.target.parentElement.parentElement.dataset.sentCleaned
-    }
+  fetchPlus(
+    baseUrl + 'user_event/',
+    { type: 'bc_word_lookup',
+      data: {
+        target_word: JSON.parse(event.target.parentElement.dataset.tcrobeEntry).word,
+        target_sentence: event.target.parentElement.parentElement.dataset.sentCleaned
+      },
+      userStatsMode: glossing
+    },
+    DEFAULT_RETRIES
   );
 
   const defHeader = doCreateElement('div', 'tcrobe-def-header', null, [["style", tcrobeDefHeader]], popup)
@@ -449,11 +309,11 @@ function enrichElement(element, data, pops) {
         entry.appendChild(doCreateElement('span', 'tcrobe-word', t['word'], null));
         if (!(t['ankrobes_entry']) || !(t['ankrobes_entry'].length) || t['ankrobes_entry'][0]['Is_Known'] == 0) {
           let gloss = null;
-          if (glossing == USER_STATS_MODE_L1) {
+          if (glossing == USER_STATS_MODE.L1) {
             gloss = t['best_guess']['normalizedTarget'].split(",")[0].split(";")[0];
-          } else if (glossing == USER_STATS_MODE_TRANSLITERATION) {
+          } else if (glossing == USER_STATS_MODE.TRANSLITERATION) {
             gloss = t['pinyin'].join("");
-          } else if (glossing == USER_STATS_MODE_L2_SIMPLIFIED) {
+          } else if (glossing == USER_STATS_MODE.L2_SIMPLIFIED) {
             if (('user_synonyms' in t) && (t['user_synonyms'].length > 0)) {
               gloss = t['user_synonyms'][0];
             } else {
@@ -502,8 +362,12 @@ function enrichDocument() {
   });
 }
 
-function refreshTokenAndRun(callback, canRunCallback) {
-  if (!(canRunCallback())) {
+chrome.runtime.onMessage.addListener(request => {
+  chrome.runtime.sendMessage({message: { type: "syncDB", val: "" } }, (response) => {
+    console.log(response.message);
+  });
+
+  if ((authToken)) {
     alert('Please refresh the page before attempting this action again');
     return;  // TODO: offer to reload from here
   }
@@ -513,42 +377,25 @@ function refreshTokenAndRun(callback, canRunCallback) {
     baseUrl: '',
     glossing: ''
   }, function (items) {
+
+    // chrome.runtime.sendMessage({message: { type: "getWordFromDBs", val: "工作" } }, (response) => {
+    //     console.log('if life is good');
+    //     console.log(response.message);
+    //     console.log('if or is it bad life is bad');
+    // });
+
     baseUrl = items.baseUrl + (items.baseUrl.endsWith('/') ? '' : '/');
     glossing = items.glossing;
-    const fetchInfo = {
-      method: "POST",
-      cache: "no-store",
-      body: JSON.stringify({ username: items.username, password: items.password }),
-      headers: { "Accept": "application/json", "Content-Type": "application/json" },
-    };
-
-    fetch(baseUrl + 'api/token/', fetchInfo)
-      .then(res => {
-        if (res.ok)
-          return res.json();
-
-        if (res.status == 401)
-          apiUnavailable("Please make sure your username and password are correct");
-        else
-          apiUnavailable("Please make sure you have the latest browser extension, or try again later");
-
-        return Promise.resolve({access: null});
-      })
-      .then(data => {
-        if (data.access) {
-          authToken = data.access;
-          refreshToken = data.refresh;
-          fromLang = parseJwt(authToken)['lang_pair'].split(':')[0];
-          callback();
-        }
-      }).catch((err) => {
-        console.log(err);
-        apiUnavailable("Make sure the server name is correct, or try again later");
-      });
+    username = items.username;
+    password = items.password;
+    fetchWithNewToken().then( () => {
+      if (!(authToken)) {
+        alert('Please refresh the page before attempting this action again');
+        return;  // TODO: offer to reload from here
+      } else {
+        enrichDocument();
+      }
+    });
+    return Promise.resolve({ response: "Running enrich" });
   });
-}
-
-chrome.runtime.onMessage.addListener(request => {
-  refreshTokenAndRun(enrichDocument, () => !(authToken));
-  return Promise.resolve({ response: "Sending response" });
 });

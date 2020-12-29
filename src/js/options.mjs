@@ -1,14 +1,11 @@
 
-
-import runInit from "./backgroundData.mjs";
-import * as utils from "./utils.mjs";
-
 // Saves options to chrome.storage
 function save_options() {
-  const username = document.getElementById("username").value;
-  const password = document.getElementById("password").value;
-  const baseUrl = document.getElementById("base-url").value;
-  const glossing = document.getElementById("glossing").value;
+  username = document.getElementById("username").value;
+  password = document.getElementById("password").value;
+  baseUrl = document.getElementById("base-url").value;
+  baseUrl = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+  glossing = document.getElementById("glossing").value;
 
   chrome.storage.local.set({
     username: username,
@@ -17,12 +14,22 @@ function save_options() {
     glossing: glossing
   }, function() {
     // Update status to let user know options were saved.
-    var status = document.getElementById('status');
+    const status = document.getElementById('status');
     status.textContent = 'Options saved.';
     setTimeout(function() {
       status.textContent = '';
     }, 750);
-    runInit();
+
+    fetchWithNewToken().then( (data) => {
+      console.log(authToken);
+      console.log(fromLang);
+      console.log(storeVersions);
+      if (!(authToken)) {
+        onError('something bad happened');
+      } else {
+        initDB();
+      }
+    });
   });
 }
 

@@ -11,15 +11,17 @@
   ],
   "background": {
     "scripts": [
-      "js/background.mjs",
-      "js/backgroundData.mjs",
-      "js/utils.mjs"
+      "js/idb-keyval-iife.js",
+      "js/lib.mjs",
+      "js/background.mjs"
     ],
     "persistent": false
   },
   "content_scripts": [
     {
       "js": [
+        "js/idb-keyval-iife.js",
+        "js/lib.mjs",
         "js/content.mjs"
       ],
       "matches": [

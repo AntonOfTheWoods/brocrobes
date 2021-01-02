@@ -1,46 +1,46 @@
 {
-  "name": "brocrobes2",
-  "version": "0.2.0",
-  "description": "Browser plugin for https://transcrob.es",
-  "homepage_url": "https://transcrob.es",
-  "permissions": [
-    "activeTab",
-    "storage",
-    "tabs",
-    "<all_urls>"
-  ],
-  "background": {
-    "scripts": [
-      "js/idb-keyval-iife.js",
-      "js/lib.mjs",
-      "js/background.mjs"
-    ],
-    "persistent": false
-  },
-  "content_scripts": [
-    {
-      "js": [
-        "js/idb-keyval-iife.js",
-        "js/lib.mjs",
-        "js/content.mjs"
-      ],
-      "matches": [
+    "name": "brocrobes2",
+    "version": "0.4.0",
+    "description": "Browser plugin for https://transcrob.es",
+    "homepage_url": "https://transcrob.es",
+    "permissions": [
+        "activeTab",
+        "storage",
+        "tabs",
         "<all_urls>"
-      ]
-    }
-  ],
-  "icons": {
-    "16": "img/tc16.png",
-    "32": "img/tc32.png",
-    "64": "img/tc64.png",
-    "128": "img/tc128.png"
-  },
-  "web_accessible_resources": [
-    "img/*.*"
-  ],
-  "options_page": "options.html",
-  "browser_action": {
-    "default_title": "Transcrobe Me!"
-  },
-  "manifest_version": 2
+    ],
+    "background": {
+        "scripts": [
+            "js/idb-keyval-iife.js",
+            "js/lib.mjs",
+            "js/background.mjs"
+        ],
+        "persistent": false
+    },
+    "content_scripts": [
+        {
+            "js": [
+                "js/idb-keyval-iife.js",
+                "js/lib.mjs",
+                "js/content.mjs"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ],
+    "icons": {
+        "16": "img/tc16.png",
+        "32": "img/tc32.png",
+        "64": "img/tc64.png",
+        "128": "img/tc128.png"
+    },
+    "web_accessible_resources": [
+        "img/*.*"
+    ],
+    "options_page": "options.html",
+    "browser_action": {
+        "default_title": "Transcrobe Me!"
+    },
+    "manifest_version": 2
 }

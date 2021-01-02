@@ -357,47 +357,46 @@ function submitUserEvent(eventData) {
   };
 }
 
-function sendUserEvents() {
-  fetchWithNewToken().then(() => {
-    // FIXME: we can get here without an updated token and without a recent successful update
-    // so probably the fetchWithNewToken method needs serious revising, or a new method created
-    const request = indexedDB.open(TC_DB, storeVersions.v);
 
-    request.onsuccess = () => {
-      let db = request.result;
-      const tx = db.transaction(EVENT_QUEUE, "readwrite");
-      const store = tx.objectStore(EVENT_QUEUE);
-
-      store.openCursor().onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (cursor) {
-          var sendStatus = await fetchPlus(baseUrl + 'user_event/', cursor.value, DEFAULT_RETRIES);
-          if (!(sendStatus) || !(sendStatus['status']) || !(sendStatus['status'] == 'success')) {
-            tx.abort()
-
-          }
-          data = {"status": "success"}
-          if (cursor.value.albumTitle === 'A farewell to kings') {
-            const updateData = cursor.value;
-
-            updateData.year = 2050;
-            const request = cursor.update(updateData);
-            request.onsuccess = () => {
-              console.log('A better album year?');
-            };
-          };
-
-          const listItem = document.createElement('li');
-          listItem.innerHTML = '<strong>' + cursor.value.albumTitle + '</strong>, ' + cursor.value.year;
-          list.appendChild(listItem);
-          cursor.continue();
-        } else {
-          console.log('Entries displayed.');
-        }
-      };
-    };
-  }
-}
+// function sendUserEvents() {
+//   fetchWithNewToken().then(() => {
+//     // FIXME: we can get here without an updated token and without a recent successful update
+//     // so probably the fetchWithNewToken method needs serious revising, or a new method created
+//     const request = indexedDB.open(TC_DB, storeVersions.v);
+//
+//     request.onsuccess = () => {
+//       let db = request.result;
+//       const tx = db.transaction(EVENT_QUEUE, "readwrite");
+//       const store = tx.objectStore(EVENT_QUEUE);
+//
+//       store.openCursor().onsuccess = (event) => {
+//         const cursor = event.target.result;
+//         if (cursor) {
+//           var sendStatus = fetchPlus(baseUrl + 'user_event/', cursor.value, DEFAULT_RETRIES);
+//           if (!(sendStatus) || !(sendStatus['status']) || !(sendStatus['status'] == 'success')) {
+//             tx.abort()
+//           }
+//           data = {"status": "success"}
+//           if (cursor.value.albumTitle === 'A farewell to kings') {
+//             const updateData = cursor.value;
+//             updateData.year = 2050;
+//             const request = cursor.update(updateData);
+//             request.onsuccess = () => {
+//               console.log('A better album year?');
+//             };
+//           };
+//
+//           const listItem = document.createElement('li');
+//           listItem.innerHTML = '<strong>' + cursor.value.albumTitle + '</strong>, ' + cursor.value.year;
+//           list.appendChild(listItem);
+//           cursor.continue();
+//         } else {
+//           console.log('Entries displayed.');
+//         }
+//       };
+//     };
+//   }
+// }
 
 function updateResult() {
   list.textContent = '';

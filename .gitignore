@@ -48,3 +48,5 @@ docs/_build/
 # Anton
 tmp/
 brocrobes.zip
+brocrobes-build
+node_modules

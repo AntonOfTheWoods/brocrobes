@@ -1,3 +1,6 @@
+// adapted from
+// https://github.com/jakearchibald/idb-keyval/blob/3edd130da83f4eab2b049921955ae5e122889a9d/dist/idb-keyval-iife.js
+
 var idbKeyval = (function (exports) {
 'use strict';
 

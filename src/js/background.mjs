@@ -4,7 +4,7 @@ function onError(error) {
 }
 
 chrome.browserAction.onClicked.addListener(function(){
-  console.log('addListener being executed');
+  console.log('onClicked.addListener being executed');
   chrome.tabs.query({active : true, lastFocusedWindow : true}, function (tabs) {
     var CurrTab = tabs[0];
     chrome.tabs.sendMessage(CurrTab.id, 'run');
@@ -14,7 +14,7 @@ chrome.browserAction.onClicked.addListener(function(){
 chrome.runtime.onMessage.addListener(
   (request, sender, sendResponse) => {
     if (request.message.type === "syncDB") {
-      console.log('trying a bg sync');
+      console.log('Starting a background sync');
       chrome.storage.local.get({
         username: '',
         password: '',
@@ -27,7 +27,7 @@ chrome.runtime.onMessage.addListener(
         password = items.password;
 
         fetchWithNewToken().then(() => {
-          initDB();
+          syncDB();
         });
         sendResponse({message: "launched a sync"});
       });
@@ -37,7 +37,7 @@ chrome.runtime.onMessage.addListener(
       });
     } else if (request.message.type === "getNoteWords") {
       getNoteWords().then((values) => {
-        console.log(values);
+        // console.log(values);
         sendResponse({message: values});
       });
     }

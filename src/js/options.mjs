@@ -21,13 +21,11 @@ function save_options() {
     }, 750);
 
     fetchWithNewToken().then( (data) => {
-      console.log(authToken);
-      console.log(fromLang);
       console.log(storeVersions);
       if (!(authToken)) {
         onError('something bad happened');
       } else {
-        initDB();
+        syncDB();
       }
     });
   });

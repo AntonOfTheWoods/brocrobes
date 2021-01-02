@@ -1,6 +1,8 @@
-let known_words = 0;
-let unknown_words = 0;
-let notes;
+let knownWordsCount = 0;
+let unknownWordsCount = 0;
+let allNotes;
+let knownNotes;
+var eventQueueTimer;
 
 // the callback function that will be fired when the element apears in the viewport
 function onEntry(entry) {
@@ -87,31 +89,33 @@ function sendNoteToApi(apiVerb, note, addNew, target, previousImg) {
     });
 }
 
-function addOrUpdateNote(event, token, source, addNew) {
+function addOrUpdateNote(event, definitions, token, source, addNew) {
+  console.log(`in source ${source} adOr ${JSON.stringify(token)}`);
   const apiVerb = addNew ? 'add_note_chromecrobes' : 'set_word_known';
-  const note = { "Simplified": token['word'], "Pinyin": token['pinyin'].join("") };
+  const note = { "Simplified": token['lemma'], "Pinyin": token['pinyin'].join("") };
 
   let meaning = '';
-  const sourceDef = token['definitions'][source];
+  const sourceDef = definitions[source];
   for (var provider in sourceDef) {
     meaning += " (" + provider + "). ";
     const means = []
     for (var pos in sourceDef[provider]) {
-      means.push(sourceDef[provider][pos]['normalizedTarget']);
+      means.push(sourceDef[provider][pos]['nt']);
     }
     meaning += means.join(', ');
   }
   note['Meaning'] = meaning;
   const previousImg = event.target.src;
   event.target.src = chrome.runtime.getURL('/img/load.gif');
-  refreshTokenAndRun(() => sendNoteToApi(apiVerb, note, addNew, event.target, previousImg), () => true );
+  // refreshTokenAndRun(() => sendNoteToApi(apiVerb, note, addNew, event.target, previousImg), () => true );
+  sendNoteToApi(apiVerb, note, addNew, event.target, previousImg);
   event.stopPropagation();
 }
 
-function popupDefinitions(token, popupContainer) {
-  const defs = token['definitions'];
-  for (var source in defs) {
-    const sources = defs[source];
+function popupDefinitions(wordInfo, token, popupContainer) {
+  console.log(`my wordInfo is ${JSON.stringify(wordInfo)}`);
+  for (var source in wordInfo.def.defs) {
+    const sources = wordInfo.def.defs[source];
     // this MUST be assigned to a const or something weird happens and the ref changes to the last item in the loop for all
     // addEventListener events
     const fixedSource = source;
@@ -121,17 +125,18 @@ function popupDefinitions(token, popupContainer) {
     defSourceHeader.appendChild(doCreateElement('div', 'tcrobe-def-source-name', source, [['style', tcrobeDefSourceName]]));
     const defSourceIcons = doCreateElement('div', 'tcrobe-def-icons', null, [['style', tcrobeDefIcons]], defSourceHeader);
 
-    if (!(token['ankrobes_entry']) || !(token['ankrobes_entry'].length)) {
+    if (!(allNotes.includes(wordInfo.def['w']))) {
+    //if (!(token['ankrobes_entry']) || !(token['ankrobes_entry'].length)) {
       // add add note button
       doCreateElement('img', "tcrobe-def-plus", null, [["src", chrome.runtime.getURL('/img/plus.png')],
         ['style', 'display: inline; width:32px; height:32px; padding:3px;']], defSourceIcons).addEventListener("click",
-          (event) => addOrUpdateNote(event, token, fixedSource, true)
+          (event) => addOrUpdateNote(event, wordInfo, token, fixedSource, true)  // FIXME: defSet was token, and this won't work
         );
     }
     // add update note button
     doCreateElement('img', "tcrobe-def-good", null, [["src", chrome.runtime.getURL('/img/good.png')],
       ['style', 'display: inline; width:32px; height:32px; padding:3px;']], defSourceIcons).addEventListener("click",
-          (event) => addOrUpdateNote(event, token, fixedSource, false)
+          (event) => addOrUpdateNote(event, wordInfo, token, fixedSource, false)  // FIXME: defSet was token, and this won't work
       );
 
     for (var pos_def in sources) {
@@ -141,33 +146,34 @@ function popupDefinitions(token, popupContainer) {
       for (var def in actual_defs) {
         let sep = "";
         if (def > 0) { sep = ", "; }
-        defSourcePosDefs.appendChild(doCreateElement('span', 'tcrobe-def-source-pos-def', sep + actual_defs[def]['normalizedTarget'], null));
+        defSourcePosDefs.appendChild(doCreateElement('span', 'tcrobe-def-source-pos-def', sep + actual_defs[def]['nt'], null));
       }
     }
   }
 }
 
-function printInfos(info, parentDiv) {
+function printInfos(metas, parentDiv) {
   const infoDiv = doCreateElement('div', 'tc-stats', null, [['style', tcrobeStats]], parentDiv);
-  info.forEach(function(e) {
+  // FIXME: this is no longer generic, and will need rewriting... later
+  for (const [meta, metaValue] of Object.entries(metas)) {
     doCreateElement('hr', null, null, null, infoDiv);
-    if (!!(e['metas'])) {
-      const infoElem = doCreateElement('div', 'tc-' + e['name'] + 's', null, null, infoDiv);
-      doCreateElement('div', 'tc-' + e['name'], e['metas'], null, infoElem);
+    if (!!(metaValue)) {
+      const infoElem = doCreateElement('div', 'tc-' + meta + 's', null, null, infoDiv);
+      doCreateElement('div', 'tc-' + meta, metaValue, null, infoElem);
     } else {
-      doCreateElement('div', 'tc-' + e['name'], 'No ' + e['name'] + ' found', null, infoDiv);
+      doCreateElement('div', 'tc-' + meta, 'No ' + meta + ' found', null, infoDiv);
     }
-  } );
+  }
 }
 
-function printSynonyms(synonyms, parentDiv) {
-  // maybe show that there are none?
-  if (!(synonyms) || !(synonyms.length > 0)){ return; }
+function printSynonyms(syns, parentDiv) {
+  // TODO: maybe show that there are none?
+  if (!(syns) || !(syns.length > 0)) { return; }
 
   const synonymsDiv = doCreateElement('div', 'tc-synonyms', null, [['style', tcrobeStats]], parentDiv);
 
   doCreateElement('hr', null, null, null, synonymsDiv);
-  doCreateElement('div', 'tc-synonym-list', synonyms.join(', '), null, synonymsDiv);
+  doCreateElement('div', 'tc-synonym-list', syns.join(', '), null, synonymsDiv);
 }
 
 function doCreateElement(elType, elClass, elInnerText, elAttrs, elParent) {
@@ -216,113 +222,143 @@ function toggleSentenceVisible(event, pop) {
     pop.style.display = "none";
   } else {
     pop.style.display = "block";
-
-    fetchPlus(
-      baseUrl + 'user_event/',
+    submitUserEvent(
       { type: 'bc_sentence_lookup',
         data: {
           target_word: event.target.parentElement.dataset.word,
           target_sentence: event.target.parentElement.dataset.sentCleaned
         },
         userStatsMode: glossing
-      },
-      DEFAULT_RETRIES
-    );
+      });
   }
 
   event.stopPropagation();
 }
 
+function localDBsToWordInfo(dbValues) {
+  let wordInfo = {};
+  wordInfo.metas = {};
+  for (const dbInfo of dbValues) {
+    if (dbInfo.db == SUBTLEX_STORE) {
+      let val = '';
+      if (!!(dbInfo.val)) {
+        let subt = dbInfo.val.v[0];
+        val = `Freq: ${subt.wcpm} : ${subt.wcdp} : ${subt.pos} : ${subt.pos_freq}`;
+      }
+      wordInfo.metas[dbInfo.db] = val;
+    } else if (dbInfo.db == HSK_STORE) {
+      let val = '';
+      if (!!(dbInfo.val)) {
+        val = `HSK: ${dbInfo.val.v[0].hsk}`;
+      }
+      wordInfo.metas[dbInfo.db] = val;
+    } else if (dbInfo.db == DEFINITION_STORE) {
+      wordInfo.def = dbInfo.val;
+    } else if (dbInfo.db == NOTE_STORE) {
+      wordInfo.not = dbInfo.val;
+    }
+  }
+  return wordInfo;
+}
+
 function populatePopup(event, popup, token) {
   initPopup(event, popup);
-
-  fetchPlus(
-    baseUrl + 'user_event/',
+  submitUserEvent(
     { type: 'bc_word_lookup',
       data: {
         target_word: JSON.parse(event.target.parentElement.dataset.tcrobeEntry).word,
         target_sentence: event.target.parentElement.parentElement.dataset.sentCleaned
       },
-      userStatsMode: glossing
-    },
-    DEFAULT_RETRIES
-  );
+      userStatsMode: glossing });
 
-  const defHeader = doCreateElement('div', 'tcrobe-def-header', null, [["style", tcrobeDefHeader]], popup)
-  defHeader.appendChild(doCreateElement('div', 'tcrobe-def-pinyin', token['pinyin'].join(""), [['style', tcrobeDefPinyin]]));
-  defHeader.appendChild(doCreateElement('div', 'tcrobe-def-best', !!(token['best_guess']) ? token['best_guess']['normalizedTarget'].split(",")[0].split(";")[0] : '', [['style', tcrobeDefBest]]));
+  chrome.runtime.sendMessage({message: { type: "getWordFromDBs", val: token['lemma'] } }, (response) => {
+    let wordInfo = localDBsToWordInfo(response.message);
 
-  const sentButton = doCreateElement('div', 'tcrobe-def-sentbutton', null, [["style", tcrobeDefSentbutton]], defHeader);
-  const sent = event.target.closest('.tcrobe-sent');
-  sentButton.dataset.sentCleaned = sent.dataset.sentCleaned;
+    const defHeader = doCreateElement('div', 'tcrobe-def-header', null, [["style", tcrobeDefHeader]], popup)
+    defHeader.appendChild(doCreateElement('div', 'tcrobe-def-pinyin', token['pinyin'].join(""), [['style', tcrobeDefPinyin]]));
+    defHeader.appendChild(doCreateElement('div', 'tcrobe-def-best', !!(token['bg']) ? token['bg']['nt'].split(",")[0].split(";")[0] : '', [['style', tcrobeDefBest]]));
 
-  sentButton.dataset.word = token['word'];
+    const sentButton = doCreateElement('div', 'tcrobe-def-sentbutton', null, [["style", tcrobeDefSentbutton]], defHeader);
+    const sent = event.target.closest('.tcrobe-sent');
+    sentButton.dataset.sentCleaned = sent.dataset.sentCleaned;
+    sentButton.dataset.word = token['lemma'];
 
-  const sentTrans = sent.dataset.sentTrans;
-  const popupExtras = doCreateElement('div', 'tcrobe-def-extras', null, null, popup);
-  const popupSentence = doCreateElement('div', 'tcrobe-def-sentence', sentTrans, null, popupExtras);
-  popupExtras.style.display = 'none';
-  const popupMessages = doCreateElement('div', 'tcrobe-def-messages', null, null, popup);
-  popupMessages.style.display = 'none';
+    const sentTrans = sent.dataset.sentTrans;
+    const popupExtras = doCreateElement('div', 'tcrobe-def-extras', null, null, popup);
+    const popupSentence = doCreateElement('div', 'tcrobe-def-sentence', sentTrans, null, popupExtras);
+    popupExtras.style.display = 'none';
+    const popupMessages = doCreateElement('div', 'tcrobe-def-messages', null, null, popup);
+    popupMessages.style.display = 'none';
 
-  doCreateElement('img', 'tcrobe-def-sentbutton-img', null, [["src", chrome.runtime.getURL('/img/plus.png')]], sentButton)
-    .addEventListener("click", (event) => { toggleSentenceVisible(event, popupExtras); });
+    doCreateElement('img', 'tcrobe-def-sentbutton-img', null, [["src", chrome.runtime.getURL('/img/plus.png')]], sentButton)
+      .addEventListener("click", (event) => { toggleSentenceVisible(event, popupExtras); });
 
-  const popupContainer = doCreateElement('div', 'tcrobe-def-container', null, [['style', tcrobeDefContainer]], popup);
-  printInfos(token['stats'], popupContainer);
-  printSynonyms(token['synonyms'], popupContainer);
-  popupDefinitions(token, popupContainer);
+    const popupContainer = doCreateElement('div', 'tcrobe-def-container', null, [['style', tcrobeDefContainer]], popup);
+    printInfos(wordInfo.metas, popupContainer);
+    // console.log(`da verd infos is ${JSON.stringify(wordInfo)}`);
+    // console.log(`da token is ${JSON.stringify(token)}`);
+    printSynonyms(wordInfo.def.syns[token.np], popupContainer);
+
+    popupDefinitions(wordInfo, token, popupContainer);
+  });
 }
 
 function enrichElement(element, data, pops) {
+  // FIXME:
+  // FIXME: make this NOT assign a gloss but rather to make sure the info is available and then go through all nodes
+  // FIXME: to do the adding  of the gloss AFTER all the information has been added.
+  // FIXME:
   const sents = doCreateElement('span', 'tcrobe-sents', null, null);
-  for (var sindex in data['sentences']) {
-    const s = data['sentences'][sindex];
+  for (var sindex in data) {
+    const sentence = data[sindex];
     const sent = doCreateElement('span', 'tcrobe-sent', null, null);
-    sent.dataset.sentCleaned = s['cleaned'];
-    sent.dataset.sentTrans = s['translation'];
-    for (var tindex in s['tokens']) {
-      const t = s['tokens'][tindex];
-      const w = t['word'];
-      if ('ankrobes_entry' in t) {
+    // FIXME: will need to put back "os" in if we really want this
+    //sent.dataset.sentCleaned = s['os'];
+
+    sent.dataset.sentTrans = sentence['l1'];
+    for (var tindex in sentence['tokens']) {
+      const token = sentence['tokens'][tindex];
+      const word = token['lemma'];
+      if ('bg' in token) {  // if there is a Best Guess key (even if empty) then we might want to look it up
         const entry = doCreateElement('span', 'tcrobe-entry', null, [['style', tcrobeEntry]]);
-        entry.dataset.tcrobeEntry = JSON.stringify(t);
+        entry.dataset.tcrobeEntry = JSON.stringify(token);
         const popie = doCreateElement('span', 'tcrobe-def-popup', null, [['style', tcrobeDefPopup]]);
         entry.appendChild(popie);
-        entry.addEventListener("click", function (event) { populatePopup(event, pops, t); });
-        entry.appendChild(doCreateElement('span', 'tcrobe-word', t['word'], null));
+        entry.addEventListener("click", (event) => { populatePopup(event, pops, token); });
+        entry.appendChild(doCreateElement('span', 'tcrobe-word', word, null));
 
-        if (!(t['ankrobes_entry']) || !(t['ankrobes_entry'].length) || t['ankrobes_entry'][0]['Is_Known'] == 0) {
+        if (!(knownNotes.includes(token['lemma']))) {
+        // if (!(t['ankrobes_entry']) || !(t['ankrobes_entry'].length) || t['ankrobes_entry'][0]['Is_Known'] == 0) {
           let gloss = null;
           if (glossing == USER_STATS_MODE.L1) {
-            gloss = t['best_guess']['normalizedTarget'].split(",")[0].split(";")[0];
+            gloss = token['bg']['nt'].split(",")[0].split(";")[0];
           } else if (glossing == USER_STATS_MODE.TRANSLITERATION) {
-            gloss = t['pinyin'].join("");
+            gloss = token['pinyin'].join("");
           } else if (glossing == USER_STATS_MODE.L2_SIMPLIFIED) {
-            if (('user_synonyms' in t) && (t['user_synonyms'].length > 0)) {
-              gloss = t['user_synonyms'][0];
+            if (('us' in token) && (token['us'].length > 0)) {
+              gloss = token['us'][0];
             } else {
-              gloss = t['best_guess']['normalizedTarget'].split(",")[0].split(";")[0];
+              gloss = token['bg']['nt'].split(",")[0].split(";")[0];
             }
           }
           if (gloss) {
             const defin = doCreateElement('span', 'tcrobe-def', '(' + gloss + ')', null);
             defin.dataset.tcrobeDef = gloss;
             // was previously defin.dataset.tcrobeDef = t['best_guess']['normalizedTarget'].split(",")[0].split(";")[0];
-            defin.dataset.tcrobeDefId = t['word'];
+            defin.dataset.tcrobeDefId = token['lemma'];
             entry.appendChild(defin);
           }
-          unknown_words++;
-          console.log("Document contains " + known_words + " and " + unknown_words + ", or "
-            + (known_words / (known_words + unknown_words)) * 100 + '% known');
+          unknownWordsCount++;
+          console.log("Document contains " + knownWordsCount + " and " + unknownWordsCount + ", or "
+            + (knownWordsCount / (knownWordsCount + unknownWordsCount)) * 100 + '% known');
         } else {
-          known_words++;
-          console.log("Document contains " + known_words + " and " + unknown_words + ", or "
-            + (known_words / (known_words + unknown_words)) * 100 + '% known');
+          knownWordsCount++;
+          console.log("Document contains " + knownWordsCount + " and " + unknownWordsCount + ", or "
+            + (knownWordsCount / (knownWordsCount + unknownWordsCount)) * 100 + '% known');
         };
         sent.appendChild(entry);
       } else {
-        sent.appendChild(document.createTextNode(!(toEnrich(w)) ? " " + w : w));
+        sent.appendChild(document.createTextNode(!(toEnrich(word)) ? " " + word : word));
       }
       sents.appendChild(sent);
     }
@@ -348,6 +384,8 @@ function enrichDocument() {
 }
 
 chrome.runtime.onMessage.addListener(request => {
+  eventQueueTimer = setInterval(sendUserEvents, EVENT_QUEUE_PROCESS_FREQ);
+
   chrome.runtime.sendMessage({message: { type: "syncDB", val: "" } }, (response) => {
     console.log(response.message);
   });
@@ -356,9 +394,11 @@ chrome.runtime.onMessage.addListener(request => {
     alert('Please refresh the page before attempting this action again');
     return;  // TODO: offer to reload from here
   }
-  chrome.runtime.sendMessage({message: { type: "getNoteWords", val: "" } }, (response) => {
-    console.log(response.message);
-    notes = response.message;
+  // FIXME: Actually we should probably wait for the the note_db sync in the syncDB above
+  // - otherwise this call might return an incomplete list, and we may gloss words we shouldn't
+  chrome.runtime.sendMessage({message: { type: 'getNoteWords', val: '' } }, (response) => {
+    knownNotes = response.message[0];
+    allNotes = response.message[1];
 
     chrome.storage.local.get({
       username: '',
@@ -378,15 +418,8 @@ chrome.runtime.onMessage.addListener(request => {
           enrichDocument();
         }
       });
-      return Promise.resolve({ response: "Running enrich" });
+      return Promise.resolve({ response: 'Running enrich' });
     });
   });
 });
-
-
-    // chrome.runtime.sendMessage({message: { type: "getWordFromDBs", val: "工作" } }, (response) => {
-    //     console.log('if life is good');
-    //     console.log(response.message);
-    //     console.log('if or is it bad life is bad');
-    // });
 

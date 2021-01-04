@@ -1,4 +1,6 @@
 
+var utils = require('./lib.mjs');
+
 function onError(error) {
   console.error(`Error: ${error}`);
 }

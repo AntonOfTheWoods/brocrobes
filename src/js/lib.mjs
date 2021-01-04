@@ -1,3 +1,4 @@
+import { get, Store, keys } from 'idb-keyval';
 
 // I am genuinely not intelligent enough to code like a proper human being in js
 // It is a horrible language, written by horrible people, for horrible people
@@ -310,8 +311,8 @@ async function syncDB() {
 function getWordFromDBs(word) {
   let promises = [];
   for (const storeName of Object.keys(storeVersions.dbs)) {
-    let store = new idbKeyval.Store(TC_DB, storeName);
-    promises.push(idbKeyval.get(word, store).then((val) => {
+    let store = new Store(TC_DB, storeName);
+    promises.push(get(word, store).then((val) => {
       // console.log(`got ${JSON.stringify(val)} for ${word} from ${storeName}`);
       return { db: storeName, val: val }
     }));
@@ -339,7 +340,7 @@ function getNoteWords() {
       }
     };
   }
-  return Promise.all([Promise.resolve(knownNotes), idbKeyval.keys(new idbKeyval.Store(TC_DB, NOTE_STORE))]);
+  return Promise.all([Promise.resolve(knownNotes), keys(new Store(TC_DB, NOTE_STORE))]);
 }
 
 function submitUserEvent(eventData) {
@@ -404,3 +405,15 @@ function updateResult() {
   const objectStore = transaction.objectStore('rushAlbumList');
 
 };
+
+export {
+  DEFAULT_RETRIES,
+  tokensFromCredentials,
+  fetchPlus,
+  toEnrich,
+  parseJwt,
+  onError,
+  textNodes,
+  USER_STATS_MODE,
+  fetchWithNewToken
+}

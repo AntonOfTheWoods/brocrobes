@@ -2,7 +2,7 @@
 let known_words = 0;
 let unknown_words = 0;
 
-var utils = require('./lib.mjs');
+var utils = require('./alib.js');
 
 // FIXME: this should not be here but rather in an external CSS
 // that is horrible for development though, so this is being used for the moment

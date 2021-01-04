@@ -2,7 +2,6 @@
   "name": "transcrobes-libs",
   "version": "0.0.1",
   "description": "Shared js libraries for transcrobes client applications",
-  "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "NODE_ENV=development webpack --config webpack.config.dev.js --mode development",
@@ -31,5 +30,8 @@
     "webpack": "^5.11.1",
     "webpack-cli": "^4.3.1",
     "webpack-dev-server": "^3.11.1"
+  },
+  "dependencies": {
+    "idb-keyval": "^3.2.0"
   }
 }

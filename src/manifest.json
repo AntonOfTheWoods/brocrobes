@@ -1,6 +1,6 @@
 {
-    "name": "brocrobes2",
-    "version": "0.4.0",
+    "name": "brocrobes",
+    "version": "0.2.0",
     "description": "Browser plugin for https://transcrob.es",
     "homepage_url": "https://transcrob.es",
     "permissions": [
@@ -11,18 +11,14 @@
     ],
     "background": {
         "scripts": [
-            "js/idb-keyval-iife.js",
-            "js/lib.mjs",
-            "js/background.mjs"
+            "background-bundle.js"
         ],
         "persistent": false
     },
     "content_scripts": [
         {
             "js": [
-                "js/idb-keyval-iife.js",
-                "js/lib.mjs",
-                "js/content.mjs"
+                "content-bundle.js"
             ],
             "matches": [
                 "<all_urls>"

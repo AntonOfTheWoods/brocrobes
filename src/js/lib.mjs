@@ -1,4 +1,5 @@
-import { get, Store, keys } from 'idb-keyval';
+// import { get, Store, keys } from 'idb-keyval';
+import { openDB } from 'idb/with-async-ittr.js';
 
 // I am genuinely not intelligent enough to code like a proper human being in js
 // It is a horrible language, written by horrible people, for horrible people
@@ -9,9 +10,52 @@ const DEFINITION_STORE = 'def';
 const NOTE_STORE = 'not';
 const EVENT_QUEUE = 'eventQueue';
 
+const TC_DB = "transcrobes";
+const TC_DB_VERSION = 1;
+
+var storeVersions = {
+  v: TC_DB_VERSION,
+  dbs: {
+    [`${HSK_STORE}`]: 0,
+    [`${SUBTLEX_STORE}`]: 0,
+    [`${DEFINITION_STORE}`]: 0,
+    [`${NOTE_STORE}`]: 0
+  }
+};
+
+function dbUpgrade(db) {
+    console.log(`Starting dbUpdate create stores`);
+    for (const storeName of Object.keys(storeVersions.dbs)) {
+      console.log(`Creating store ${storeName}`);
+      const store = db.createObjectStore(storeName, {keyPath: "w"}).createIndex("by_date", "ts");
+      //const dateIndex = store.createIndex("by_date", "ts");
+    }
+    db.createObjectStore(EVENT_QUEUE, { autoIncrement : true });
+}
+
+// const DB_PROMISE = openDB(TC_DB, TC_DB_VERSION, { upgrade(db) { dbUpgrade(db); }, });
+//
+// const idbKeyval = {
+//   async get(key, store='keyval') {
+//     return (await DB_PROMISE).get(store, key);
+//   },
+//   async set(key, val, store='keyval') {
+//     return (await DB_PROMISE).put(store, val, key);
+//   },
+//   async delete(key, store='keyval') {
+//     return (await DB_PROMISE).delete(store, key);
+//   },
+//   async clear(store='keyval') {
+//     return (await DB_PROMISE).clear(store);
+//   },
+//   async keys(store='keyval') {
+//     return (await DB_PROMISE).getAllKeys(store);
+//   },
+// };
+
 const EVENT_QUEUE_PROCESS_FREQ = 2000; //milliseconds
 
-const TC_DB = "transcrobes";
+const DEFAULT_RETRIES = 3;
 
 const USER_STATS_MODE = {
   IGNORE: -1,
@@ -29,18 +73,14 @@ var username = '';
 var password = '';
 var baseUrl = '';
 var glossing = -1;
+function setAuthToken(value) { username = value; }
+function setUsername(value) { username = value; }
+function setFromLang(value) { fromLang = value; }
+function setPassword(value) { password = value; }
+function setBaseUrl(value) { baseUrl = value; }
+function setGlossing(value) { glossing = value; }
+function setStoreVersions(value) { storeVersions = value; }
 
-var storeVersions = {
-  v: 1,
-  dbs: {
-    [`${HSK_STORE}`]: 0,
-    [`${SUBTLEX_STORE}`]: 0,
-    [`${DEFINITION_STORE}`]: 0,
-    [`${NOTE_STORE}`]: 0
-  }
-};
-
-const DEFAULT_RETRIES = 3;
 
 async function tokensFromCredentials(items) {
   baseUrl = items.baseUrl + (items.baseUrl.endsWith('/') ? '' : '/');
@@ -226,86 +266,118 @@ function fetchPlus(url, body, retries, apiUnavailableCallback) {
     });
 }
 
-function updateDb(db, dbName, dbVersion, maxdate, progressCallback, progressFrequency=1000) {
-  return fetchPlus(baseUrl + `enrich/${dbName}_db`, { version: dbVersion, maxdate: maxdate },
+async function updateDb(db, storeName, dbVersion, maxdate, progressCallback, progressFrequency=1000) {
+  return fetchPlus(baseUrl + `enrich/${storeName}_db`, { version: dbVersion, maxdate: maxdate },
     DEFAULT_RETRIES, apiUnavailable).then((data) => {
-    const tx = db.transaction(dbName, "readwrite");
-    const store = tx.objectStore(dbName);
-    let i = 0;
-    for (const entry of data) {
-      if (progressCallback) {
-        i++;
-        if ((i % progressFrequency) == 0) {
-          progressCallback(`Processing record ${i} for database ${dbName}`);
-          console.log(`${dbName}: ${i} putting ${JSON.stringify(entry)}`);
-        }
-      }
-      store.put(entry);
-    }
-    tx.oncomplete = () => {
-      console.log(`Updated db ${dbName}`);
-      // All requests have succeeded and the transaction has committed.
-    };
+      const tx = db.transaction(storeName, 'readwrite');
+      console.log(JSON.stringify(data).substring(0, 100));
+      return Promise.all([...(data.map(entry => { return tx.store.put(entry) })), tx.done]);
+
+    // const tx = db.transaction(dbName, "readwrite");
+    // const store = tx.objectStore(dbName);
+    // let i = 0;
+    // for (const entry of data) {
+    //   if (progressCallback) {
+    //     i++;
+    //     if ((i % progressFrequency) == 0) {
+    //       progressCallback(`Processing record ${i} for database ${dbName}`);
+    //       console.log(`${dbName}: ${i} putting ${JSON.stringify(entry)}`);
+    //     }
+    //   }
+    //   store.put(entry);
+    // }
+    // tx.oncomplete = () => {
+    //   console.log(`Updated db ${dbName}`);
+    //   // All requests have succeeded and the transaction has committed.
+    // };
   });
 }
 
+
+function displayMessage(message) {
+  // Show a non-modal message to the user.
+  // FIXME: put this in the warning banner!
+  if (document.getElementById("tcMessage")) {
+    document.getElementById("tcMessage").textContent = message;
+  }
+  console.log(message);
+}
+
 async function syncDB() {
-  const request = indexedDB.open(TC_DB, storeVersions.v);
-  request.onupgradeneeded = () => {
-    db = request.result;
-    if (event.oldVersion < 1) {
-      for (const storeName of Object.keys(storeVersions.dbs)) {
-        console.log(`Creating store ${storeName}`);
-        const store = db.createObjectStore(storeName, {keyPath: "w"});
-        const dateIndex = store.createIndex("by_date", "ts");
-      }
-      db.createObjectStore(EVENT_QUEUE, { autoIncrement : true });
-    }
-    db.onversionchange = () => {
-      // First, save any unsaved data:
-      saveUnsavedData().then(() => { });
-    };
-  }
-  request.onsuccess = () => {
-    let db = request.result;
-    // console.log(storeVersions);
-    for (const [storeName, storeVersion] of Object.entries(storeVersions.dbs)) {
-      console.log(storeName, storeVersion);
-      const tx = db.transaction(storeName, "readonly");
-      const store = tx.objectStore(storeName);
-      const index = store.index("by_date");
-      const openCursorRequest = index.openCursor(null, 'prev');
-      let maxRevisionObject = null;
+  // const request = indexedDB.open(TC_DB, storeVersions.v);
+  // FIXME: should already be done now above
+  // request.onupgradeneeded = () => {
+  //   let db = request.result;
+  //   if (event.oldVersion < 1) {
+  //     for (const storeName of Object.keys(storeVersions.dbs)) {
+  //       console.log(`Creating store ${storeName}`);
+  //       const store = db.createObjectStore(storeName, {keyPath: "w"});
+  //       const dateIndex = store.createIndex("by_date", "ts");
+  //     }
+  //     db.createObjectStore(EVENT_QUEUE, { autoIncrement : true });
+  //   }
+  //   db.onversionchange = () => {
+  //     // First, save any unsaved data:
+  //     saveUnsavedData().then(() => { });
+  //   };
+  // }
+  const db = await openDB(TC_DB, TC_DB_VERSION, { upgrade(db) { dbUpgrade(db); }, });
 
-      openCursorRequest.onsuccess = function (event) {
-        if (event.target.result) {
-          maxRevisionObject = event.target.result.value; //the object with max revision
-        }
-      };
-      tx.oncomplete = function (event) {
-        let maxDbDate = (maxRevisionObject == null) ? 0 : maxRevisionObject.ts;
-        console.log(`${storeName}: max local ${maxDbDate}, remote ${storeVersions.dbs[storeName]}`);
-        if (maxDbDate < storeVersions.dbs[storeName]) {
-          console.log(`${storeName}: updating`);
-          updateDb(db, storeName, storeVersions.v, maxDbDate, displayMessage).then(() => {
-            //db.close();
-          });
-        }
-      };
-    }
-  };
+  for (const [storeName, storeVersion] of Object.entries(storeVersions.dbs)) {
+    console.log(storeName, storeVersion);
+    // const cursor = await db.transaction(storeName).store.index('by_date').openCursor(null, 'prev');
+    await db.transaction(storeName).store.index('by_date').openCursor(null, 'prev').then((cursor) => {
+      // console.log(`hello ${storeName}: ${cursor.key} and ${JSON.stringify(cursor.value)}`);
+      let maxDbDate = ((!(cursor) || !(cursor.value)) ? 0 : cursor.value.ts);
+      console.log(`${storeName}: max local ${maxDbDate}, remote ${storeVersions.dbs[storeName]}`);
 
-  function saveUnsavedData() {
-    // How you do this depends on your app.
+      return updateDb(db, storeName, storeVersions.v, maxDbDate, displayMessage).then(() => {
+        //db.close();
+        console.log(`Should have updated the ${storeName} db properly`);
+      });
+    });
+
+    // const tx = db.transaction(storeName, "readonly");
+    // const store = tx.objectStore(storeName);
+    // const index = store.index("by_date");
+    // const openCursorRequest = index.openCursor(null, 'prev');
+    // let maxRevisionObject = null;
   }
 
-  function displayMessage(message) {
-    // Show a non-modal message to the user.
-    // FIXME: put this in the warning banner!
-    if (document.getElementById("tcMessage")) {
-      document.getElementById("tcMessage").textContent = message;
-    }
-  }
+  // request.onsuccess = () => {
+  //   let db = request.result;
+  //   // console.log(storeVersions);
+  //   for (const [storeName, storeVersion] of Object.entries(storeVersions.dbs)) {
+  //     console.log(storeName, storeVersion);
+
+  //     const tx = db.transaction(storeName, "readonly");
+  //     const store = tx.objectStore(storeName);
+  //     const index = store.index("by_date");
+  //     const openCursorRequest = index.openCursor(null, 'prev');
+  //     let maxRevisionObject = null;
+
+  //     openCursorRequest.onsuccess = function (event) {
+  //       if (event.target.result) {
+  //         maxRevisionObject = event.target.result.value; //the object with max revision
+  //       }
+  //     };
+  //     tx.oncomplete = function (event) {
+  //       let maxDbDate = (maxRevisionObject == null) ? 0 : maxRevisionObject.ts;
+  //       console.log(`${storeName}: max local ${maxDbDate}, remote ${storeVersions.dbs[storeName]}`);
+  //       if (maxDbDate < storeVersions.dbs[storeName]) {
+  //         console.log(`${storeName}: updating`);
+  //         updateDb(db, storeName, storeVersions.v, maxDbDate, displayMessage).then(() => {
+  //           //db.close();
+  //         });
+  //       }
+  //     };
+  //   }
+  // };
+
+  // function saveUnsavedData() {
+  //   // How you do this depends on your app.
+  // }
+
 }
 
 function getWordFromDBs(word) {
@@ -313,7 +385,7 @@ function getWordFromDBs(word) {
   for (const storeName of Object.keys(storeVersions.dbs)) {
     let store = new Store(TC_DB, storeName);
     promises.push(get(word, store).then((val) => {
-      // console.log(`got ${JSON.stringify(val)} for ${word} from ${storeName}`);
+      console.log(`got ${JSON.stringify(val)} for ${word} from ${storeName}`);
       return { db: storeName, val: val }
     }));
   }
@@ -323,24 +395,35 @@ function getWordFromDBs(word) {
 function getNoteWords() {
   // FIXME: think about adding an index and filtering on the index
   const request = indexedDB.open(TC_DB, storeVersions.v);
-  let knownNotes = [];
-  request.onsuccess = () => {
-    let db = request.result;
-
-    var transaction = db.transaction(NOTE_STORE, "readonly");
-    var objectStore = transaction.objectStore(NOTE_STORE);
-
-    objectStore.openCursor().onsuccess = (event) => {
-      var cursor = event.target.result;
-      if(cursor) {
-        if (cursor.value.n.Is_Known == 1) {
-          knownNotes.push(cursor.value.n.Simplified);
-        }
-        cursor.continue();
-      }
-    };
+  const knownNotes = [];
+  const allNotes = [];
+  const db = openDB(TC_DB, storeVersions.v);
+  const allNoteObjects = db.getAll(NOTE_STORE);
+  for (const note of allNoteObjects) {
+    if (note.value.n.Is_Known == 1) {
+      knownNotes.push(note.key);
+    }
+    allNotes.push(note.key);
   }
-  return Promise.all([Promise.resolve(knownNotes), keys(new Store(TC_DB, NOTE_STORE))]);
+  return [knownNotes, allNotes];
+
+  // request.onsuccess = () => {
+  //   let db = request.result;
+
+  //   var transaction = db.transaction(NOTE_STORE, "readonly");
+  //   var objectStore = transaction.objectStore(NOTE_STORE);
+
+  //   objectStore.openCursor().onsuccess = (event) => {
+  //     var cursor = event.target.result;
+  //     if(cursor) {
+  //       if (cursor.value.n.Is_Known == 1) {
+  //         knownNotes.push(cursor.key);
+  //       }
+  //       cursor.continue();
+  //     }
+  //   };
+  // }
+  // return Promise.all([Promise.resolve(knownNotes), keys(new Store(TC_DB, NOTE_STORE))]);
 }
 
 function submitUserEvent(eventData) {
@@ -358,6 +441,7 @@ function submitUserEvent(eventData) {
   };
 }
 
+function sendUserEvents() {}
 
 // function sendUserEvents() {
 //   fetchWithNewToken().then(() => {
@@ -407,7 +491,30 @@ function updateResult() {
 };
 
 export {
+  //variables and constants
   DEFAULT_RETRIES,
+  EVENT_QUEUE_PROCESS_FREQ,
+  HSK_STORE,
+  NOTE_STORE,
+  SUBTLEX_STORE,
+  DEFINITION_STORE,
+  authToken,
+  username,
+  password,
+  baseUrl,
+  glossing,
+  storeVersions,
+
+  // property setters
+  setAuthToken,
+  setUsername,
+  setPassword,
+  setFromLang,
+  setBaseUrl,
+  setGlossing,
+  setStoreVersions,
+
+  //functions
   tokensFromCredentials,
   fetchPlus,
   toEnrich,
@@ -415,5 +522,10 @@ export {
   onError,
   textNodes,
   USER_STATS_MODE,
-  fetchWithNewToken
+  fetchWithNewToken,
+  getNoteWords,
+  syncDB,
+  getWordFromDBs,
+  sendUserEvents,
+  submitUserEvent,
 }

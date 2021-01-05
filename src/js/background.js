@@ -1,5 +1,7 @@
 
-var utils = require('./lib.mjs');
+import * as utils from './lib.mjs';
+
+// var utils = require('./lib.mjs');
 
 function onError(error) {
   console.error(`Error: ${error}`);
@@ -29,18 +31,23 @@ chrome.runtime.onMessage.addListener(
         password = items.password;
 
         fetchWithNewToken().then(() => {
-          syncDB();
+          utils.syncDB();
         });
         sendResponse({message: "launched a sync"});
       });
     } else if (request.message.type === "getWordFromDBs") {
-      getWordFromDBs(request.message.val).then((values) => {
+      utils.getWordFromDBs(request.message.val).then((values) => {
         sendResponse({message: values});
       });
     } else if (request.message.type === "getNoteWords") {
-      getNoteWords().then((values) => {
+      utils.getNoteWords().then((values) => {
         // console.log(values);
         sendResponse({message: values});
+      });
+    } else if (request.message.type === "submitUserEvent") {
+      utils.submitUserEvent(request.message).then((something) => {
+        console.log(request.message);
+        sendResponse({message: 'Event submitted'});
       });
     }
     return true;

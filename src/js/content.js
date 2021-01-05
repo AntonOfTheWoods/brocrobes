@@ -1,3 +1,5 @@
+import * as utils from './lib.mjs';
+
 let knownWordsCount = 0;
 let unknownWordsCount = 0;
 let allNotes;
@@ -11,17 +13,18 @@ function onEntry(entry) {
     if (change.target.dataset && change.target.dataset.tced) return;
 
     change.target.childNodes.forEach(function(item) {
-        if (item.nodeType == 3) {
-          fetchPlus(baseUrl + 'enrich/aenrich_json', { data: item.nodeValue, userStatsMode: glossing },
-            DEFAULT_RETRIES)
-            .then(data => {
-              enrichElement(item, data, pops);
-              change.target.dataset.tced = true;
-            }).catch((err) => {
-              console.log(err);
-            });
-       }
-     });
+      if (item.nodeType == 3) {
+        utils.fetchPlus(utils.baseUrl + 'enrich/aenrich_json', { data: item.nodeValue, userStatsMode: utils.glossing },
+          utils.DEFAULT_RETRIES)
+          .then(data => {
+            //enrichElement(item, data, pops);
+            fillEntry(item, data, updateWordForEntry)
+            change.target.dataset.tced = true;
+          }).catch((err) => {
+            console.log(err);
+          });
+      }
+    });
   });
 }
 
@@ -48,8 +51,9 @@ const tcrobeDefSentbutton = 'box-sizing: border-box; float: left; width: 50%; pa
 const tcrobeStats = 'margin-left: 6px; padding: 5px 0;';
 // End style for elements
 
-const pops = doCreateElement('span', 'tcrobe-def-popup', null, [['style', tcrobeDefPopup]], document.body);
-pops.attributes.id = 'dapopsicle';
+// there was a global one - was this just js imcompetence?
+// const pops = doCreateElement('span', 'tcrobe-def-popup', null, [['style', tcrobeDefPopup]], document.body);
+// pops.attributes.id = 'dapopsicle';
 
 function cleanupAfterNoteUpdate(addNew, simplified) {
   //remove existing defs if we are setting is_known = true
@@ -196,7 +200,11 @@ function doCreateElement(elType, elClass, elInnerText, elAttrs, elParent) {
     return el;
 }
 
-function initPopup(event, popup) {
+function initPopup(event) {
+
+  const popup = doCreateElement('span', 'tcrobe-def-popup', null, [['style', tcrobeDefPopup]], document.body);
+  popup.attributes.id = 'dapopsicle';
+
   event.stopPropagation();
   // this allows to have the popup on links and if click again then the link will activate
   // FIXME: this should be more intelligent! Currently it considers that a click on *another*
@@ -214,7 +222,8 @@ function initPopup(event, popup) {
 
   popup.style.top = (event.pageY + 20) + 'px';
   popup.style.display = "block";
-  popup.innerHTML = '';
+  // popup.innerHTML = '';
+  return popup
 }
 
 function toggleSentenceVisible(event, pop) {
@@ -222,13 +231,13 @@ function toggleSentenceVisible(event, pop) {
     pop.style.display = "none";
   } else {
     pop.style.display = "block";
-    submitUserEvent(
+    utils.submitUserEvent(
       { type: 'bc_sentence_lookup',
         data: {
           target_word: event.target.parentElement.dataset.word,
           target_sentence: event.target.parentElement.dataset.sentCleaned
         },
-        userStatsMode: glossing
+        userStatsMode: utils.glossing
       });
   }
 
@@ -239,29 +248,72 @@ function localDBsToWordInfo(dbValues) {
   let wordInfo = {};
   wordInfo.metas = {};
   for (const dbInfo of dbValues) {
-    if (dbInfo.db == SUBTLEX_STORE) {
+    if (dbInfo.db == utils.SUBTLEX_STORE) {
       let val = '';
       if (!!(dbInfo.val)) {
         let subt = dbInfo.val.v[0];
         val = `Freq: ${subt.wcpm} : ${subt.wcdp} : ${subt.pos} : ${subt.pos_freq}`;
       }
       wordInfo.metas[dbInfo.db] = val;
-    } else if (dbInfo.db == HSK_STORE) {
+    } else if (dbInfo.db == utils.HSK_STORE) {
       let val = '';
       if (!!(dbInfo.val)) {
         val = `HSK: ${dbInfo.val.v[0].hsk}`;
       }
       wordInfo.metas[dbInfo.db] = val;
-    } else if (dbInfo.db == DEFINITION_STORE) {
+    } else if (dbInfo.db == utils.DEFINITION_STORE) {
       wordInfo.def = dbInfo.val;
-    } else if (dbInfo.db == NOTE_STORE) {
+    } else if (dbInfo.db == utils.NOTE_STORE) {
       wordInfo.not = dbInfo.val;
     }
   }
   return wordInfo;
 }
 
-function populatePopup(event, popup, token) {
+function populatePopup(event, token) {
+  const popup = initPopup(event);
+
+  utils.submitUserEvent(
+    { type: 'bc_word_lookup',
+      data: {
+        target_word: JSON.parse(event.target.parentElement.dataset.tcrobeEntry).word,
+        target_sentence: event.target.parentElement.parentElement.dataset.sentCleaned
+      },
+      userStatsMode: utils.glossing });
+
+  chrome.runtime.sendMessage({message: { type: "getWordFromDBs", val: token['lemma'] } }, (response) => {
+    let wordInfo = localDBsToWordInfo(response.message);
+
+    const defHeader = doCreateElement('div', 'tcrobe-def-header', null, [["style", tcrobeDefHeader]], popup)
+    defHeader.appendChild(doCreateElement('div', 'tcrobe-def-pinyin', token['pinyin'].join(""), [['style', tcrobeDefPinyin]]));
+    defHeader.appendChild(doCreateElement('div', 'tcrobe-def-best', !!(token['bg']) ? token['bg']['nt'].split(",")[0].split(";")[0] : '', [['style', tcrobeDefBest]]));
+
+    const sentButton = doCreateElement('div', 'tcrobe-def-sentbutton', null, [["style", tcrobeDefSentbutton]], defHeader);
+    const sent = event.target.closest('.tcrobe-sent');
+    sentButton.dataset.sentCleaned = sent.dataset.sentCleaned;
+    sentButton.dataset.word = token['lemma'];
+
+    const sentTrans = sent.dataset.sentTrans;
+    const popupExtras = doCreateElement('div', 'tcrobe-def-extras', null, null, popup);
+    const popupSentence = doCreateElement('div', 'tcrobe-def-sentence', sentTrans, null, popupExtras);
+    popupExtras.style.display = 'none';
+    const popupMessages = doCreateElement('div', 'tcrobe-def-messages', null, null, popup);
+    popupMessages.style.display = 'none';
+
+    doCreateElement('img', 'tcrobe-def-sentbutton-img', null, [["src", chrome.runtime.getURL('/img/plus.png')]], sentButton)
+      .addEventListener("click", (event) => { toggleSentenceVisible(event, popupExtras); });
+
+    const popupContainer = doCreateElement('div', 'tcrobe-def-container', null, [['style', tcrobeDefContainer]], popup);
+    printInfos(wordInfo.metas, popupContainer);
+    // console.log(`da verd infos is ${JSON.stringify(wordInfo)}`);
+    // console.log(`da token is ${JSON.stringify(token)}`);
+    printSynonyms(wordInfo.def.syns[token.np], popupContainer);
+
+    popupDefinitions(wordInfo, token, popupContainer);
+  });
+}
+
+function populatePopupOld(event, popup, token) {
   initPopup(event, popup);
   submitUserEvent(
     { type: 'bc_word_lookup',
@@ -301,6 +353,75 @@ function populatePopup(event, popup, token) {
 
     popupDefinitions(wordInfo, token, popupContainer);
   });
+}
+
+function updateWordForEntry(entry, glossing, tokenData, knownNotes) {
+  var token = tokenData || JSON.parse(entry.dataset.tcrobeEntry);
+  let glossElement = entry.querySelector('.tcrobe-def');
+
+  entry.appendChild(doCreateElement('span', 'tcrobe-word', token['lemma'], null));
+  entry.addEventListener("click", (event) => { populatePopup(event, token); });
+
+  if (!(knownNotes.includes(token['lemma']))) {
+    // if (!(t['ankrobes_entry']) || !(t['ankrobes_entry'].length) || t['ankrobes_entry'][0]['Is_Known'] == 0) {
+    let gloss = null;
+    if (glossing == utils.USER_STATS_MODE.L1) {
+      gloss = token['bg']['nt'].split(",")[0].split(";")[0];
+    } else if (glossing == utils.USER_STATS_MODE.TRANSLITERATION) {
+      gloss = token['pinyin'].join("");
+    } else if (glossing == utils.USER_STATS_MODE.L2_SIMPLIFIED) {
+      if (('us' in token) && (token['us'].length > 0)) {
+        gloss = token['us'][0];
+      } else {  //fall back to L1
+        gloss = token['bg']['nt'].split(",")[0].split(";")[0];
+      }
+    }
+    if (gloss) {
+      if (!glossElement) {
+        glossElement = doCreateElement('span', 'tcrobe-def', null, null);
+        entry.appendChild(glossElement);
+      }
+      glossElement.textContent = '(' + gloss + ')';
+      glossElement.dataset.tcrobeDef = gloss;
+      glossElement.dataset.tcrobeDefId = token['lemma'];
+    } else {
+      if (glossElement) {
+        entry.removeChild(glossElement);  // we don't want a supported gloss (even though we apparently don't know it)
+      }
+    }
+  } else {
+    if (glossElement) {
+      entry.removeChild(glossElement);  // it's known, we don't want a gloss
+    }
+  }
+}
+
+function fillEntry(element, data, updateWordCallback) {
+  const sents = doCreateElement('span', 'tcrobe-sents', null, null);
+  for (var sindex in data) {
+    const sentence = data[sindex];
+    const sent = doCreateElement('span', 'tcrobe-sent', null, null);
+    // FIXME: will need to put back "os" in if we really want this
+    //sent.dataset.sentCleaned = s['os'];
+
+    sent.dataset.sentTrans = sentence['l1'];
+    for (var tindex in sentence['tokens']) {
+      const token = sentence['tokens'][tindex];
+      const word = token['lemma'];
+      if ('bg' in token) {  // if there is a Best Guess key (even if empty) then we might want to look it up
+        const entry = doCreateElement('span', 'tcrobe-entry', null, [['style', tcrobeEntry]]);
+        entry.dataset.tcrobeEntry = JSON.stringify(token);
+        if (updateWordCallback) {
+          updateWordCallback(entry, utils.glossing, token, knownNotes);
+        }
+        sent.appendChild(entry);
+      } else {
+        sent.appendChild(document.createTextNode(!(utils.toEnrich(word)) ? " " + word : word));
+      }
+      sents.appendChild(sent);
+    }
+  }
+  element.replaceWith(sents);
 }
 
 function enrichElement(element, data, pops) {
@@ -367,30 +488,32 @@ function enrichElement(element, data, pops) {
 }
 
 function enrichDocument() {
-  textNodes(document.body).forEach(function (el) {
-    if (!toEnrich(el.nodeValue)) {
-      console.log("Not enriching: " + el.nodeValue);
+  utils.textNodes(document.body).forEach((textNode) => {
+    if (!utils.toEnrich(textNode.nodeValue)) {
+      console.log("Not enriching: " + textNode.nodeValue);
       return;
     }
-    observer.observe(el.parentElement);
+    observer.observe(textNode.parentElement);
   });
 
   document.addEventListener('click', () => {
-    popups = document.getElementsByClassName("tcrobe-def-popup");  // why are there more than one again? ¯_(ツ)_/¯
-    for (var i = 0; i < popups.length; i++) {
-      popups[i].style.display = "none";
-    }
+    document.querySelectorAll(".tcrobe-def-popup").forEach(el => el.remove());
+    // WAS, the above might not work...
+    // popups = document.getElementsByClassName("tcrobe-def-popup");  // why are there more than one again? ¯_(ツ)_/¯
+    // for (var i = 0; i < popups.length; i++) {
+    //   popups[i].style.display = "none";
+    // }
   });
 }
 
 chrome.runtime.onMessage.addListener(request => {
-  eventQueueTimer = setInterval(sendUserEvents, EVENT_QUEUE_PROCESS_FREQ);
+  eventQueueTimer = setInterval(utils.sendUserEvents, utils.EVENT_QUEUE_PROCESS_FREQ);
 
   chrome.runtime.sendMessage({message: { type: "syncDB", val: "" } }, (response) => {
     console.log(response.message);
   });
 
-  if ((authToken)) {
+  if (!!(utils.authToken)) {
     alert('Please refresh the page before attempting this action again');
     return;  // TODO: offer to reload from here
   }
@@ -406,13 +529,16 @@ chrome.runtime.onMessage.addListener(request => {
       baseUrl: '',
       glossing: ''
     }, function (items) {
-      baseUrl = items.baseUrl + (items.baseUrl.endsWith('/') ? '' : '/');
-      glossing = items.glossing;
-      username = items.username;
-      password = items.password;
-      fetchWithNewToken().then( () => {
-        if (!(authToken)) {
-          alert('Please refresh the page before attempting this action again');
+
+      utils.setUsername(items.username);
+      utils.setPassword(items.password);
+      utils.setBaseUrl(items.baseUrl + (items.baseUrl.endsWith('/') ? '' : '/'));
+      utils.setGlossing(items.glossing);
+
+      utils.fetchWithNewToken().then( () => {
+        if (!(utils.authToken)) {
+          alert('Something is wrong, we could not authenticate. '+
+            'Please refresh the page before attempting this action again');
           return;  // TODO: offer to reload from here
         } else {
           enrichDocument();
@@ -422,4 +548,3 @@ chrome.runtime.onMessage.addListener(request => {
     });
   });
 });
-

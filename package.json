@@ -1,7 +1,7 @@
 {
-  "name": "transcrobes-libs",
-  "version": "0.0.1",
-  "description": "Shared js libraries for transcrobes client applications",
+  "name": "brocrobes",
+  "version": "0.2.0",
+  "description": "asdf",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "NODE_ENV=development webpack --config webpack.config.dev.js --mode development",
@@ -32,6 +32,6 @@
     "webpack-dev-server": "^3.11.1"
   },
   "dependencies": {
-    "idb-keyval": "^3.2.0"
+    "idb": "^5.0.8"
   }
 }

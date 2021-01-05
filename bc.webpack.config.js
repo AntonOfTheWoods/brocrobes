@@ -4,14 +4,15 @@ const path = require('path');
 
 module.exports = {
   entry: {
-    background: ['./src/js/background.mjs'],
-    lib: ['./src/js/lib.js'],
-    popup: ['./src/js/popup.mjs'],
+    background: [ './src/js/background.js', ],
+    content: ['./src/js/content.js'],
+    options: [ './src/js/options.js', ],
   },
   output: {
     filename: '[name]-bundle.js',  // output bundle file name
     path: path.resolve(__dirname, './brocrobes-build/'),
   },
+  devtool: 'inline-source-map',
   module: {
     rules: [
       {
@@ -28,18 +29,12 @@ module.exports = {
     ]
   },
   plugins: [
-    // new CopyPlugin({
-    //   patterns: [
-    //     { from: "src/img", to: "img" },
-    //     { from: "src/manifest.json", to: "manifest.json" },
-    //     { from: "src/options.html", to: "options.html" },
-    //   ],
-    // }),
-    // new BrowserExtensionPlugin({
-    //   devMode: false,
-    //   name: "brocrobes.zip",
-    //   directory: "brocrobes-build",
-    //   updateType: "minor"
-    // }),
-  ]
+    new CopyPlugin({
+      patterns: [
+        { from: "src/img", to: "img" },
+        { from: "src/manifest.json", to: "manifest.json" },
+        { from: "src/options.html", to: "options.html" },
+      ],
+    }),
+  ],
 };

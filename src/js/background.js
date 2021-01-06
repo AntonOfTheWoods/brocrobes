@@ -23,7 +23,7 @@ chrome.runtime.onMessage.addListener(
         password: '',
         baseUrl: '',
         glossing: ''
-      }, function (items) {
+      }, (items) => {
 
         utils.setUsername(items.username);
         utils.setPassword(items.password);
@@ -40,11 +40,7 @@ chrome.runtime.onMessage.addListener(
         sendResponse({message: values});
       });
     } else if (request.message.type === "getNoteWords") {
-      // values = utils.getNoteWords();
-      // sendResponse({message: values});
-
       utils.getNoteWords().then((values) => {
-        // console.log(values);
         sendResponse({message: values});
       });
     } else if (request.message.type === "submitUserEvent") {

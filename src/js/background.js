@@ -1,11 +1,10 @@
-
 import * as utils from './lib.mjs';
-
-// var utils = require('./lib.mjs');
 
 function onError(error) {
   console.error(`Error: ${error}`);
 }
+
+var eventQueueTimer = setInterval(utils.sendUserEvents, utils.EVENT_QUEUE_PROCESS_FREQ);
 
 chrome.browserAction.onClicked.addListener(function(){
   console.log('onClicked.addListener being executed');
@@ -25,12 +24,13 @@ chrome.runtime.onMessage.addListener(
         baseUrl: '',
         glossing: ''
       }, function (items) {
-        baseUrl = items.baseUrl + (items.baseUrl.endsWith('/') ? '' : '/');
-        glossing = items.glossing;
-        username = items.username;
-        password = items.password;
 
-        fetchWithNewToken().then(() => {
+        utils.setUsername(items.username);
+        utils.setPassword(items.password);
+        utils.setBaseUrl(items.baseUrl + (items.baseUrl.endsWith('/') ? '' : '/'));
+        utils.setGlossing(items.glossing);
+
+        utils.fetchWithNewToken().then(() => {
           utils.syncDB();
         });
         sendResponse({message: "launched a sync"});
@@ -40,12 +40,15 @@ chrome.runtime.onMessage.addListener(
         sendResponse({message: values});
       });
     } else if (request.message.type === "getNoteWords") {
+      // values = utils.getNoteWords();
+      // sendResponse({message: values});
+
       utils.getNoteWords().then((values) => {
         // console.log(values);
         sendResponse({message: values});
       });
     } else if (request.message.type === "submitUserEvent") {
-      utils.submitUserEvent(request.message).then((something) => {
+      utils.submitUserEvent(request.message.val).then((something) => {
         console.log(request.message);
         sendResponse({message: 'Event submitted'});
       });

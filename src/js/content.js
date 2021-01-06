@@ -1,5 +1,7 @@
 import * as utils from './lib.mjs';
 
+var currentPoppedUpElement = null;
+
 let knownWordsCount = 0;
 let unknownWordsCount = 0;
 let allNotes;
@@ -36,7 +38,7 @@ let observer = new IntersectionObserver(onEntry, { threshold: [0.9] });
 // Style for elements
 const tcrobeEntry = 'padding-left: 6px; position: relative; cursor: pointer; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;';
 // FIXME: now we have only one floating popup, this needs to be revisited
-const tcrobeDefPopup = 'all: initial; * { all: unset; box-sizing: border-box; } height: 400px; background-color: #555; color: #fff; text-align: center; border-radius: 6px; padding: 3px 0; position: absolute; z-index: 1000; top: 120%; right: 50%; margin-right: -80px; display: none; width: 350px;';
+const tcrobeDefPopup = 'all: initial; * { all: unset; box-sizing: border-box; } height: 400px; background-color: #555; color: #fff; text-align: center; border-radius: 6px; padding: 3px 0; position: absolute; z-index: 99999; top: 120%; right: 50%; margin-right: -80px; display: none; width: 350px;';
 const tcrobeDefContainer = 'text-align: left;';
 const tcrobeDefSource = 'margin-left: 6px; padding: 5px 0;';
 const tcrobeDefSourceHeader = 'box-sizing: border-box;';
@@ -72,52 +74,72 @@ function cleanupAfterNoteUpdate(addNew, simplified) {
   // while (plusImgs.length > 0) plusImgs[0].remove();
 }
 
-function sendNoteToApi(apiVerb, note, addNew, target, previousImg) {
-  fetchPlus(baseUrl + 'notes/' + apiVerb, note, DEFAULT_RETRIES)
-    .then(res => {
-      const msg = document.getElementsByClassName('tcrobe-def-messages')[0];
-      msg.style.display = "block";
-      target.src = previousImg;
-      if (res.status != "ok") {
-        msg.innerHTML = "Update failed. Please try again later.";
-      } else {
-        note['Is_Known'] = 1;  // FIXME: does this do anything?
-        cleanupAfterNoteUpdate(addNew, note.Simplified);
-        msg.innerHTML = "Update succeeded";
-        setTimeout(() => msg.style.display = "none", 3000);
-      }
-    }).catch((err) => {
-      console.log(err);
-      //overkill?
-      //apiUnavailable();
-    });
-}
+// moved to lib.mjs, so can happen from background.js
+// function sendNoteToApi(apiVerb, note, addNew, target, previousImg) {
+//   fetchPlus(baseUrl + 'notes/' + apiVerb, note, DEFAULT_RETRIES)
+//     .then(res => {
+//       const msg = document.getElementsByClassName('tcrobe-def-messages')[0];
+//       msg.style.display = "block";
+//       target.src = previousImg;
+//       if (res.status != "ok") {
+//         msg.innerHTML = "Update failed. Please try again later.";
+//       } else {
+//         note['Is_Known'] = 1;  // FIXME: does this do anything?
+//         cleanupAfterNoteUpdate(addNew, note.Simplified);
+//         msg.innerHTML = "Update succeeded";
+//         setTimeout(() => msg.style.display = "none", 3000);
+//       }
+//     }).catch((err) => {
+//       console.log(err);
+//       //overkill?
+//       //apiUnavailable();
+//     });
+// }
 
 function addOrUpdateNote(event, definitions, token, source, addNew) {
   console.log(`in source ${source} adOr ${JSON.stringify(token)}`);
-  const apiVerb = addNew ? 'add_note_chromecrobes' : 'set_word_known';
+  // const apiVerb = addNew ? 'add_note_chromecrobes' : 'set_word_known';
   const note = { "Simplified": token['lemma'], "Pinyin": token['pinyin'].join("") };
 
   let meaning = '';
   const sourceDef = definitions[source];
-  for (var provider in sourceDef) {
-    meaning += " (" + provider + "). ";
+  // console.log(`he definitions is ${JSON.stringify(definitions)}`);
+  // console.log(`hde source is ${JSON.stringify(source)}`);
+
+  for (const pos in sourceDef) {
+    // console.log(`hde pos is ${JSON.stringify(pos)}`);
+    meaning += " (" + pos + "). ";
     const means = []
-    for (var pos in sourceDef[provider]) {
-      means.push(sourceDef[provider][pos]['nt']);
+    for (const entry of sourceDef[pos]) {
+      // console.log(`hde entry is ${JSON.stringify(entry)}`);
+      means.push(entry['nt']);
     }
     meaning += means.join(', ');
   }
+  // console.log(`hde meaning is ${JSON.stringify(meaning)}`);
   note['Meaning'] = meaning;
   const previousImg = event.target.src;
   event.target.src = chrome.runtime.getURL('/img/load.gif');
-  // refreshTokenAndRun(() => sendNoteToApi(apiVerb, note, addNew, event.target, previousImg), () => true );
-  sendNoteToApi(apiVerb, note, addNew, event.target, previousImg);
+
+  const userEvent = {
+    type: addNew ? 'add_note_chromecrobes' : 'set_word_known',
+    data: {
+      note: note,
+    }, };
+
+  chrome.runtime.sendMessage({message: { type: "submitUserEvent", val: userEvent } }, (response) => {
+    const msg = document.getElementsByClassName('tcrobe-def-messages')[0];
+    msg.style.display = "block";
+    msg.innerHTML = "Update submitted";
+    setTimeout(() => { msg.style.display = "none"; event.target.src = previousImg }, 3000);
+    cleanupAfterNoteUpdate(addNew, note.Simplified);
+    console.log(response);
+  });
   event.stopPropagation();
 }
 
 function popupDefinitions(wordInfo, token, popupContainer) {
-  console.log(`my wordInfo is ${JSON.stringify(wordInfo)}`);
+  // console.log(`my wordInfo is ${JSON.stringify(wordInfo)}`);
   for (var source in wordInfo.def.defs) {
     const sources = wordInfo.def.defs[source];
     // this MUST be assigned to a const or something weird happens and the ref changes to the last item in the loop for all
@@ -134,13 +156,13 @@ function popupDefinitions(wordInfo, token, popupContainer) {
       // add add note button
       doCreateElement('img', "tcrobe-def-plus", null, [["src", chrome.runtime.getURL('/img/plus.png')],
         ['style', 'display: inline; width:32px; height:32px; padding:3px;']], defSourceIcons).addEventListener("click",
-          (event) => addOrUpdateNote(event, wordInfo, token, fixedSource, true)  // FIXME: defSet was token, and this won't work
+          (event) => addOrUpdateNote(event, wordInfo.def.defs, token, fixedSource, true)  // FIXME: defSet was token, and this won't work
         );
     }
     // add update note button
     doCreateElement('img', "tcrobe-def-good", null, [["src", chrome.runtime.getURL('/img/good.png')],
       ['style', 'display: inline; width:32px; height:32px; padding:3px;']], defSourceIcons).addEventListener("click",
-          (event) => addOrUpdateNote(event, wordInfo, token, fixedSource, false)  // FIXME: defSet was token, and this won't work
+          (event) => addOrUpdateNote(event, wordInfo.def.defs, token, fixedSource, false)  // FIXME: defSet was token, and this won't work
       );
 
     for (var pos_def in sources) {
@@ -201,7 +223,26 @@ function doCreateElement(elType, elClass, elInnerText, elAttrs, elParent) {
 }
 
 function initPopup(event) {
+  // clear any existing popups
+  // const oldPopup = document.querySelectorAll(".tcrobe-def-popup");
+  // if (oldPopup.length > 0 &&
+  //   (oldPopup[0].parentElement == event.target.parentElement || oldPopup[0].parentElement.parentElement == event.target.parentElement)) {
+  //   // We clicked on the same element twice, it's probably a link, so we shouldn't try and do any more
+  //   return oldPopup;
+  // }
 
+  // We clicked on the same element twice, it's probably a link, so we shouldn't try and do any more
+  if (currentPoppedUpElement == event.target.parentElement) {
+    currentPoppedUpElement = null;
+    return null;
+    // return document.querySelectorAll(".tcrobe-def-popup")[0];
+  }
+  //console.log(event.target.parentElement.getBoundingClientRect());
+  document.querySelectorAll(".tcrobe-def-popup").forEach(el => el.remove());
+
+  currentPoppedUpElement = event.target.parentElement;
+
+  //const popup = doCreateElement('span', 'tcrobe-def-popup', null, [['style', tcrobeDefPopup]], event.target);
   const popup = doCreateElement('span', 'tcrobe-def-popup', null, [['style', tcrobeDefPopup]], document.body);
   popup.attributes.id = 'dapopsicle';
 
@@ -209,20 +250,28 @@ function initPopup(event) {
   // this allows to have the popup on links and if click again then the link will activate
   // FIXME: this should be more intelligent! Currently it considers that a click on *another*
   // link text also means you want to follow, which is patently not true, so it should detect
-  // and prevent following when the new click is not on the same word
-  if (popup.style.display == "none") event.preventDefault();
+  // and prevent following only when the new click is not on the same word
+  // FIXME: WAS
+  // if (popup.style.display == "none") event.preventDefault();
+  event.preventDefault();
 
   // place the popup just under the clicked item
   const width = parseInt(popup.style.width, 10);
+  // console.log(`width is ${width}`);
+  // console.log(`pageX is ${event.pageX}`);
   if (event.pageX < (width / 2)) {
     popup.style.left = '0px';
   } else {
     popup.style.left = (event.pageX - (width / 2)) + 'px';
   }
-
   popup.style.top = (event.pageY + 20) + 'px';
+
+  // // place the popup just under the clicked item
+  // popup.style.left = '0px';
+  // //popup.style.top = '0px';
+  // popup.style.top = event.target.parentElement.getBoundingClientRect().height + 'px';
+
   popup.style.display = "block";
-  // popup.innerHTML = '';
   return popup
 }
 
@@ -231,14 +280,17 @@ function toggleSentenceVisible(event, pop) {
     pop.style.display = "none";
   } else {
     pop.style.display = "block";
-    utils.submitUserEvent(
-      { type: 'bc_sentence_lookup',
-        data: {
-          target_word: event.target.parentElement.dataset.word,
-          target_sentence: event.target.parentElement.dataset.sentCleaned
-        },
-        userStatsMode: utils.glossing
-      });
+    const userEvent = {
+      type: 'bc_sentence_lookup',
+      data: {
+        target_word: event.target.parentElement.dataset.word,
+        target_sentence: event.target.parentElement.dataset.sentCleaned
+      },
+      userStatsMode: utils.glossing
+    };
+    chrome.runtime.sendMessage({message: { type: "submitUserEvent", val: userEvent } }, (response) => {
+      console.log(response);
+    });
   }
 
   event.stopPropagation();
@@ -272,14 +324,23 @@ function localDBsToWordInfo(dbValues) {
 
 function populatePopup(event, token) {
   const popup = initPopup(event);
+  if (!(popup)) return;  // closing the popup, we don't want to trace the event further
 
-  utils.submitUserEvent(
-    { type: 'bc_word_lookup',
-      data: {
-        target_word: JSON.parse(event.target.parentElement.dataset.tcrobeEntry).word,
-        target_sentence: event.target.parentElement.parentElement.dataset.sentCleaned
-      },
-      userStatsMode: utils.glossing });
+  // const toto = JSON.parse(event.target.parentElement.dataset.tcrobeEntry).lemma;
+  // const tata = event.target.parentElement.parentElement.dataset.sentCleaned;
+  // console.log(`my toto ${toto}`);
+  // console.log(`my tata ${tata}`);
+  const userEvent = {
+    type: 'bc_word_lookup',
+    data: {
+      target_word: JSON.parse(event.target.parentElement.dataset.tcrobeEntry).lemma,
+      target_sentence: event.target.parentElement.parentElement.dataset.sentCleaned,
+    },
+    userStatsMode: utils.glossing };
+  // console.log(`the event is ${JSON.stringify(userEvent)}`);
+  chrome.runtime.sendMessage({message: { type: "submitUserEvent", val: userEvent } }, (response) => {
+    console.log(response);
+  });
 
   chrome.runtime.sendMessage({message: { type: "getWordFromDBs", val: token['lemma'] } }, (response) => {
     let wordInfo = localDBsToWordInfo(response.message);
@@ -313,47 +374,47 @@ function populatePopup(event, token) {
   });
 }
 
-function populatePopupOld(event, popup, token) {
-  initPopup(event, popup);
-  submitUserEvent(
-    { type: 'bc_word_lookup',
-      data: {
-        target_word: JSON.parse(event.target.parentElement.dataset.tcrobeEntry).word,
-        target_sentence: event.target.parentElement.parentElement.dataset.sentCleaned
-      },
-      userStatsMode: glossing });
-
-  chrome.runtime.sendMessage({message: { type: "getWordFromDBs", val: token['lemma'] } }, (response) => {
-    let wordInfo = localDBsToWordInfo(response.message);
-
-    const defHeader = doCreateElement('div', 'tcrobe-def-header', null, [["style", tcrobeDefHeader]], popup)
-    defHeader.appendChild(doCreateElement('div', 'tcrobe-def-pinyin', token['pinyin'].join(""), [['style', tcrobeDefPinyin]]));
-    defHeader.appendChild(doCreateElement('div', 'tcrobe-def-best', !!(token['bg']) ? token['bg']['nt'].split(",")[0].split(";")[0] : '', [['style', tcrobeDefBest]]));
-
-    const sentButton = doCreateElement('div', 'tcrobe-def-sentbutton', null, [["style", tcrobeDefSentbutton]], defHeader);
-    const sent = event.target.closest('.tcrobe-sent');
-    sentButton.dataset.sentCleaned = sent.dataset.sentCleaned;
-    sentButton.dataset.word = token['lemma'];
-
-    const sentTrans = sent.dataset.sentTrans;
-    const popupExtras = doCreateElement('div', 'tcrobe-def-extras', null, null, popup);
-    const popupSentence = doCreateElement('div', 'tcrobe-def-sentence', sentTrans, null, popupExtras);
-    popupExtras.style.display = 'none';
-    const popupMessages = doCreateElement('div', 'tcrobe-def-messages', null, null, popup);
-    popupMessages.style.display = 'none';
-
-    doCreateElement('img', 'tcrobe-def-sentbutton-img', null, [["src", chrome.runtime.getURL('/img/plus.png')]], sentButton)
-      .addEventListener("click", (event) => { toggleSentenceVisible(event, popupExtras); });
-
-    const popupContainer = doCreateElement('div', 'tcrobe-def-container', null, [['style', tcrobeDefContainer]], popup);
-    printInfos(wordInfo.metas, popupContainer);
-    // console.log(`da verd infos is ${JSON.stringify(wordInfo)}`);
-    // console.log(`da token is ${JSON.stringify(token)}`);
-    printSynonyms(wordInfo.def.syns[token.np], popupContainer);
-
-    popupDefinitions(wordInfo, token, popupContainer);
-  });
-}
+// function populatePopupOld(event, popup, token) {
+//   initPopup(event, popup);
+//   submitUserEvent(
+//     { type: 'bc_word_lookup',
+//       data: {
+//         target_word: JSON.parse(event.target.parentElement.dataset.tcrobeEntry).word,
+//         target_sentence: event.target.parentElement.parentElement.dataset.sentCleaned
+//       },
+//       userStatsMode: glossing });
+//
+//   chrome.runtime.sendMessage({message: { type: "getWordFromDBs", val: token['lemma'] } }, (response) => {
+//     let wordInfo = localDBsToWordInfo(response.message);
+//
+//     const defHeader = doCreateElement('div', 'tcrobe-def-header', null, [["style", tcrobeDefHeader]], popup)
+//     defHeader.appendChild(doCreateElement('div', 'tcrobe-def-pinyin', token['pinyin'].join(""), [['style', tcrobeDefPinyin]]));
+//     defHeader.appendChild(doCreateElement('div', 'tcrobe-def-best', !!(token['bg']) ? token['bg']['nt'].split(",")[0].split(";")[0] : '', [['style', tcrobeDefBest]]));
+//
+//     const sentButton = doCreateElement('div', 'tcrobe-def-sentbutton', null, [["style", tcrobeDefSentbutton]], defHeader);
+//     const sent = event.target.closest('.tcrobe-sent');
+//     sentButton.dataset.sentCleaned = sent.dataset.sentCleaned;
+//     sentButton.dataset.word = token['lemma'];
+//
+//     const sentTrans = sent.dataset.sentTrans;
+//     const popupExtras = doCreateElement('div', 'tcrobe-def-extras', null, null, popup);
+//     const popupSentence = doCreateElement('div', 'tcrobe-def-sentence', sentTrans, null, popupExtras);
+//     popupExtras.style.display = 'none';
+//     const popupMessages = doCreateElement('div', 'tcrobe-def-messages', null, null, popup);
+//     popupMessages.style.display = 'none';
+//
+//     doCreateElement('img', 'tcrobe-def-sentbutton-img', null, [["src", chrome.runtime.getURL('/img/plus.png')]], sentButton)
+//       .addEventListener("click", (event) => { toggleSentenceVisible(event, popupExtras); });
+//
+//     const popupContainer = doCreateElement('div', 'tcrobe-def-container', null, [['style', tcrobeDefContainer]], popup);
+//     printInfos(wordInfo.metas, popupContainer);
+//     // console.log(`da verd infos is ${JSON.stringify(wordInfo)}`);
+//     // console.log(`da token is ${JSON.stringify(token)}`);
+//     printSynonyms(wordInfo.def.syns[token.np], popupContainer);
+//
+//     popupDefinitions(wordInfo, token, popupContainer);
+//   });
+// }
 
 function updateWordForEntry(entry, glossing, tokenData, knownNotes) {
   var token = tokenData || JSON.parse(entry.dataset.tcrobeEntry);
@@ -402,7 +463,7 @@ function fillEntry(element, data, updateWordCallback) {
     const sentence = data[sindex];
     const sent = doCreateElement('span', 'tcrobe-sent', null, null);
     // FIXME: will need to put back "os" in if we really want this
-    //sent.dataset.sentCleaned = s['os'];
+    sent.dataset.sentCleaned = sentence['os'];
 
     sent.dataset.sentTrans = sentence['l1'];
     for (var tindex in sentence['tokens']) {
@@ -424,68 +485,68 @@ function fillEntry(element, data, updateWordCallback) {
   element.replaceWith(sents);
 }
 
-function enrichElement(element, data, pops) {
-  // FIXME:
-  // FIXME: make this NOT assign a gloss but rather to make sure the info is available and then go through all nodes
-  // FIXME: to do the adding  of the gloss AFTER all the information has been added.
-  // FIXME:
-  const sents = doCreateElement('span', 'tcrobe-sents', null, null);
-  for (var sindex in data) {
-    const sentence = data[sindex];
-    const sent = doCreateElement('span', 'tcrobe-sent', null, null);
-    // FIXME: will need to put back "os" in if we really want this
-    //sent.dataset.sentCleaned = s['os'];
-
-    sent.dataset.sentTrans = sentence['l1'];
-    for (var tindex in sentence['tokens']) {
-      const token = sentence['tokens'][tindex];
-      const word = token['lemma'];
-      if ('bg' in token) {  // if there is a Best Guess key (even if empty) then we might want to look it up
-        const entry = doCreateElement('span', 'tcrobe-entry', null, [['style', tcrobeEntry]]);
-        entry.dataset.tcrobeEntry = JSON.stringify(token);
-        const popie = doCreateElement('span', 'tcrobe-def-popup', null, [['style', tcrobeDefPopup]]);
-        entry.appendChild(popie);
-        entry.addEventListener("click", (event) => { populatePopup(event, pops, token); });
-        entry.appendChild(doCreateElement('span', 'tcrobe-word', word, null));
-
-        if (!(knownNotes.includes(token['lemma']))) {
-        // if (!(t['ankrobes_entry']) || !(t['ankrobes_entry'].length) || t['ankrobes_entry'][0]['Is_Known'] == 0) {
-          let gloss = null;
-          if (glossing == USER_STATS_MODE.L1) {
-            gloss = token['bg']['nt'].split(",")[0].split(";")[0];
-          } else if (glossing == USER_STATS_MODE.TRANSLITERATION) {
-            gloss = token['pinyin'].join("");
-          } else if (glossing == USER_STATS_MODE.L2_SIMPLIFIED) {
-            if (('us' in token) && (token['us'].length > 0)) {
-              gloss = token['us'][0];
-            } else {
-              gloss = token['bg']['nt'].split(",")[0].split(";")[0];
-            }
-          }
-          if (gloss) {
-            const defin = doCreateElement('span', 'tcrobe-def', '(' + gloss + ')', null);
-            defin.dataset.tcrobeDef = gloss;
-            // was previously defin.dataset.tcrobeDef = t['best_guess']['normalizedTarget'].split(",")[0].split(";")[0];
-            defin.dataset.tcrobeDefId = token['lemma'];
-            entry.appendChild(defin);
-          }
-          unknownWordsCount++;
-          console.log("Document contains " + knownWordsCount + " and " + unknownWordsCount + ", or "
-            + (knownWordsCount / (knownWordsCount + unknownWordsCount)) * 100 + '% known');
-        } else {
-          knownWordsCount++;
-          console.log("Document contains " + knownWordsCount + " and " + unknownWordsCount + ", or "
-            + (knownWordsCount / (knownWordsCount + unknownWordsCount)) * 100 + '% known');
-        };
-        sent.appendChild(entry);
-      } else {
-        sent.appendChild(document.createTextNode(!(toEnrich(word)) ? " " + word : word));
-      }
-      sents.appendChild(sent);
-    }
-    element.replaceWith(sents);
-  }
-}
+// function enrichElement(element, data, pops) {
+//   // FIXME:
+//   // FIXME: make this NOT assign a gloss but rather to make sure the info is available and then go through all nodes
+//   // FIXME: to do the adding  of the gloss AFTER all the information has been added.
+//   // FIXME:
+//   const sents = doCreateElement('span', 'tcrobe-sents', null, null);
+//   for (var sindex in data) {
+//     const sentence = data[sindex];
+//     const sent = doCreateElement('span', 'tcrobe-sent', null, null);
+//     // FIXME: will need to put back "os" in if we really want this
+//     //sent.dataset.sentCleaned = s['os'];
+//
+//     sent.dataset.sentTrans = sentence['l1'];
+//     for (var tindex in sentence['tokens']) {
+//       const token = sentence['tokens'][tindex];
+//       const word = token['lemma'];
+//       if ('bg' in token) {  // if there is a Best Guess key (even if empty) then we might want to look it up
+//         const entry = doCreateElement('span', 'tcrobe-entry', null, [['style', tcrobeEntry]]);
+//         entry.dataset.tcrobeEntry = JSON.stringify(token);
+//         const popie = doCreateElement('span', 'tcrobe-def-popup', null, [['style', tcrobeDefPopup]]);
+//         entry.appendChild(popie);
+//         entry.addEventListener("click", (event) => { populatePopup(event, pops, token); });
+//         entry.appendChild(doCreateElement('span', 'tcrobe-word', word, null));
+//
+//         if (!(knownNotes.includes(token['lemma']))) {
+//         // if (!(t['ankrobes_entry']) || !(t['ankrobes_entry'].length) || t['ankrobes_entry'][0]['Is_Known'] == 0) {
+//           let gloss = null;
+//           if (glossing == USER_STATS_MODE.L1) {
+//             gloss = token['bg']['nt'].split(",")[0].split(";")[0];
+//           } else if (glossing == USER_STATS_MODE.TRANSLITERATION) {
+//             gloss = token['pinyin'].join("");
+//           } else if (glossing == USER_STATS_MODE.L2_SIMPLIFIED) {
+//             if (('us' in token) && (token['us'].length > 0)) {
+//               gloss = token['us'][0];
+//             } else {
+//               gloss = token['bg']['nt'].split(",")[0].split(";")[0];
+//             }
+//           }
+//           if (gloss) {
+//             const defin = doCreateElement('span', 'tcrobe-def', '(' + gloss + ')', null);
+//             defin.dataset.tcrobeDef = gloss;
+//             // was previously defin.dataset.tcrobeDef = t['best_guess']['normalizedTarget'].split(",")[0].split(";")[0];
+//             defin.dataset.tcrobeDefId = token['lemma'];
+//             entry.appendChild(defin);
+//           }
+//           unknownWordsCount++;
+//           console.log("Document contains " + knownWordsCount + " and " + unknownWordsCount + ", or "
+//             + (knownWordsCount / (knownWordsCount + unknownWordsCount)) * 100 + '% known');
+//         } else {
+//           knownWordsCount++;
+//           console.log("Document contains " + knownWordsCount + " and " + unknownWordsCount + ", or "
+//             + (knownWordsCount / (knownWordsCount + unknownWordsCount)) * 100 + '% known');
+//         };
+//         sent.appendChild(entry);
+//       } else {
+//         sent.appendChild(document.createTextNode(!(toEnrich(word)) ? " " + word : word));
+//       }
+//       sents.appendChild(sent);
+//     }
+//     element.replaceWith(sents);
+//   }
+// }
 
 function enrichDocument() {
   utils.textNodes(document.body).forEach((textNode) => {
@@ -507,9 +568,7 @@ function enrichDocument() {
 }
 
 chrome.runtime.onMessage.addListener(request => {
-  eventQueueTimer = setInterval(utils.sendUserEvents, utils.EVENT_QUEUE_PROCESS_FREQ);
-
-  chrome.runtime.sendMessage({message: { type: "syncDB", val: "" } }, (response) => {
+   chrome.runtime.sendMessage({message: { type: "syncDB", val: '' } }, (response) => {
     console.log(response.message);
   });
 

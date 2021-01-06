@@ -1,4 +1,3 @@
-// import { get, Store, keys } from 'idb-keyval';
 import { openDB } from 'idb/with-async-ittr.js';
 
 // I am genuinely not intelligent enough to code like a proper human being in js
@@ -116,10 +115,8 @@ async function tokensFromCredentials(items) {
 
 function apiUnavailable(message) {
   // close the popup if it's open
-  popups = document.getElementsByClassName("tcrobe-def-popup");  // why are there more than one again? ¯_(ツ)_/¯
-  for (var i = 0; i < popups.length; i++) {
-    popups[i].style.display = "none";
-  }
+  document.querySelectorAll(".tcrobe-def-popup").forEach(el => el.remove());
+
   const error = document.createElement('div');
   error.appendChild(document.createTextNode(`Transcrobes Server ${baseUrl} Unavailable. ${message}`));
   error.style.position = "fixed";
@@ -244,6 +241,8 @@ function fetchPlus(url, body, retries, apiUnavailableCallback) {
     .then(res => {
       if (res.ok) {
         return res.json()
+      } else {
+        console.log(`failure inside fetch res is ${JSON.stringify(res)}`);
       }
 
       if (retries > 0 && res.status == 401) {
@@ -270,8 +269,18 @@ async function updateDb(db, storeName, dbVersion, maxdate, progressCallback, pro
   return fetchPlus(baseUrl + `enrich/${storeName}_db`, { version: dbVersion, maxdate: maxdate },
     DEFAULT_RETRIES, apiUnavailable).then((data) => {
       const tx = db.transaction(storeName, 'readwrite');
-      console.log(JSON.stringify(data).substring(0, 100));
-      return Promise.all([...(data.map(entry => { return tx.store.put(entry) })), tx.done]);
+      // console.log(JSON.stringify(data).substring(0, 100));
+      let i = 0;
+      return Promise.all([...(data.map(entry => {
+        if (progressCallback) {
+          i++;
+          if ((i % progressFrequency) == 0) {
+            progressCallback(`Processing record ${i} for database ${dbName}`);
+            console.log(`${dbName}: ${i} putting ${JSON.stringify(entry)}`);
+          }
+        }
+        return tx.store.put(entry);
+      })), tx.done]);
 
     // const tx = db.transaction(dbName, "readwrite");
     // const store = tx.objectStore(dbName);
@@ -380,33 +389,44 @@ async function syncDB() {
 
 }
 
-function getWordFromDBs(word) {
+async function getWordFromDBs(word) {
   let promises = [];
+  const db = await openDB(TC_DB, storeVersions.v);
   for (const storeName of Object.keys(storeVersions.dbs)) {
-    let store = new Store(TC_DB, storeName);
-    promises.push(get(word, store).then((val) => {
+    //promises.push(db.get(storeName, word));
+
+    promises.push(db.get(storeName, word).then((val) => {
       console.log(`got ${JSON.stringify(val)} for ${word} from ${storeName}`);
       return { db: storeName, val: val }
     }));
+
+    // let store = new Store(TC_DB, storeName);
+    // promises.push(get(word, store).then((val) => {
+    //   console.log(`got ${JSON.stringify(val)} for ${word} from ${storeName}`);
+    //   return { db: storeName, val: val }
+    // }));
   }
-  return Promise.all(promises);
+  return await Promise.all(promises);
 }
 
-function getNoteWords() {
+async function getNoteWords() {
   // FIXME: think about adding an index and filtering on the index
-  const request = indexedDB.open(TC_DB, storeVersions.v);
   const knownNotes = [];
   const allNotes = [];
-  const db = openDB(TC_DB, storeVersions.v);
-  const allNoteObjects = db.getAll(NOTE_STORE);
+  const db = await openDB(TC_DB, storeVersions.v);
+  const allNoteObjects = await db.getAll(NOTE_STORE);
+
   for (const note of allNoteObjects) {
-    if (note.value.n.Is_Known == 1) {
-      knownNotes.push(note.key);
+    // console.log(note);
+    if (note.n.Is_Known == 1) {
+      knownNotes.push(note.w);
     }
-    allNotes.push(note.key);
+    allNotes.push(note.w);
   }
+  db.close()
   return [knownNotes, allNotes];
 
+  // const request = indexedDB.open(TC_DB, storeVersions.v);
   // request.onsuccess = () => {
   //   let db = request.result;
 
@@ -426,22 +446,85 @@ function getNoteWords() {
   // return Promise.all([Promise.resolve(knownNotes), keys(new Store(TC_DB, NOTE_STORE))]);
 }
 
-function submitUserEvent(eventData) {
-  const request = indexedDB.open(TC_DB, storeVersions.v);
-  request.onsuccess = () => {
-    let db = request.result;
-    const tx = db.transaction(EVENT_QUEUE, "readwrite");
-    const store = tx.objectStore(EVENT_QUEUE);
-    store.put(eventData);
-    tx.oncomplete = () => {
-      console.log(`Updated eventQueue with ${JSON.stringify(eventData)}`);
-      // All requests have succeeded and the transaction has committed.
-      db.close()
-    };
-  };
+async function submitUserEvent(eventData) {
+  const db = await openDB(TC_DB, storeVersions.v);
+  db.put(EVENT_QUEUE, eventData);
+  db.close();
 }
 
-function sendUserEvents() {}
+async function sendUserEvents() {
+  if (!(baseUrl) || !(username) || !(password)) {
+    return { 'status': 'uninitialised' };
+  }
+  const db = await openDB(TC_DB, storeVersions.v);
+  // const allEvents = await db.getAll(EVENT_QUEUE);
+  const allEvents = [];
+  const allEntries = [];
+  let cursor = await db.transaction(EVENT_QUEUE).store.openCursor();
+  while (cursor) {
+    console.log(cursor.key, cursor.value);
+    allEntries.push({key: cursor.key, value: cursor.value});
+    allEvents.push(cursor.value);
+    cursor = await cursor.continue();
+  }
+
+  if (!(allEvents.length)) {
+    return { 'status': 'empty_queue' };
+  }
+  fetchPlus(baseUrl + 'user_event/', allEvents, DEFAULT_RETRIES)
+    // .then(res => {
+    //   if (res.ok) {
+    //     console.log(`the res.ok in sendUserEvents is ${JSON.stringify(res)}`);
+    //     return res.json();
+    //   } else {
+    //     console.log(`the res in sendUserEvents is ${JSON.stringify(res)}`);
+    //   }
+
+    //   let message = 'user_event update failed due to res.ok not ok!';
+    //   console.log(message);
+    //   throw message;
+    // })
+    .then(data => {
+      if (!(data) || !(data['status']) || !(data['status'] == 'success')) {
+        let message = 'user_event update failed due to return status incorrect!';
+        throw message;
+      } else {
+        // remove from queue
+        for (const userEvent of allEntries) {
+          // console.log(`trying to delete ${JSON.stringify(userEvent)} from queue`);
+          db.delete(EVENT_QUEUE, userEvent.key);
+        }
+      }
+      db.close()
+    }).catch((err) => {
+      console.log(err);
+      throw 'user_event update failed! That is bad!';
+    });
+  return { 'status': 'success' };
+}
+
+// function sendNoteToApi(apiVerb, note, addNew, target, previousImg) {
+//   fetchPlus(baseUrl + 'notes/' + apiVerb, note, DEFAULT_RETRIES)
+//     .then(res => {
+//       const msg = document.getElementsByClassName('tcrobe-def-messages')[0];
+//       msg.style.display = "block";
+//       target.src = previousImg;
+//       if (res.status != "ok") {
+//         msg.innerHTML = "Update failed. Please try again later.";
+//       } else {
+//         note['Is_Known'] = 1;  // FIXME: does this do anything?
+//         cleanupAfterNoteUpdate(addNew, note.Simplified);
+//         msg.innerHTML = "Update succeeded";
+//         setTimeout(() => msg.style.display = "none", 3000);
+//       }
+//     }).catch((err) => {
+//       console.log(err);
+//       //overkill?
+//       //apiUnavailable();
+//     });
+// }
+
+
 
 // function sendUserEvents() {
 //   fetchWithNewToken().then(() => {
@@ -482,13 +565,6 @@ function sendUserEvents() {}
 //     };
 //   }
 // }
-
-function updateResult() {
-  list.textContent = '';
-  const transaction = db.transaction(['rushAlbumList'], 'readwrite');
-  const objectStore = transaction.objectStore('rushAlbumList');
-
-};
 
 export {
   //variables and constants

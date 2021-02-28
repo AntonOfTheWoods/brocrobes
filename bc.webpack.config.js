@@ -1,4 +1,3 @@
-const BrowserExtensionPlugin = require("extension-build-webpack-plugin");
 const CopyPlugin = require("copy-webpack-plugin");
 const path = require('path');
 
